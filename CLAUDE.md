@@ -1,84 +1,53 @@
 # binance-futures-monitor - project rules
 
-Read-only scripts to spot situations on Binance USD-M futures. Modular: self-contained CLI tools, shared logic in small libs.
+Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/main.py`) drives a single background daemon; everything else is an imported lib. Sources in `src/`.
 
 ## Process
 - Be patient: understand the use case and discuss trade-offs before architecting or writing files. Plan first; do not rush to code on a half-specified ask.
 
 ## Architecture
-- Two kinds of file, decided by who invokes it:
-  - CLI tools - run directly by a human or cron: `monitor.py`, `notifier.py` (notifier is also importable). Follow the CLI conventions below.
-  - Libs - imported only, never run: `binance_client.py`, `conditions.py`. No argparse, no shebang, no `__main__`.
-- Decide tool vs lib up front: a human/cron runs it -> tool; only other code imports it -> lib. Do NOT bolt a CLI on a lib for "consistency" - that is ceremony.
-- Reusable logic lives in libs. CLI tools hold ZERO reusable logic: parse args, call lib, render.
-- Wire tools together by importing, never by subprocess (monitor imports `notify`, does not shell out to notifier.py).
+- Sources live in `src/`; run via `uv run ./src/main.py <command>` (sys.path[0] = src/, so flat sibling imports work; no packaging).
+- `src/main.py` is the ONLY CLI tool (subcommands + daemon spawn). Everything else is a lib, imported only: `daemon.py`, `store.py`, `proclock.py`, `paths.py`, `conditions.py`, `binance_client.py`, `config.py`, `notifier.py`. Libs have no argparse/shebang/`__main__`.
+- The CLI tool holds ZERO reusable logic: parse args, call lib, render. Wire by importing, never subprocess - the ONE exception is the daemon re-spawning itself detached.
 - One file = one responsibility.
-- No magic literals for shared conventions: name a constant in the module that owns it AND place it next to what it describes - not orphaned at the top (e.g. `CONDITION_AUTO_ABOVE_SUFFIX` right above the `REGISTRY` whose keys follow it). Never sprinkle a bare `"-above"` across code.
+- No magic literals for shared conventions: name a constant in the module that owns it AND place it next to what it describes - not orphaned at the top (e.g. `CONDITION_AUTO_ABOVE_SUFFIX` right above the `REGISTRY` whose keys follow it). Never sprinkle a bare `"-above"`.
+- `paths.py` is the single source of truth for all runtime locations (root, `.env`, db, pidfile, log), anchored to the repo root (parent of `src/`); override the data dir with `BFM_DATA_DIR`.
 
-## CLI conventions (CLI tools only, not libs)
-- Shebang `#!/usr/bin/env python3`, `chmod +x`.
-- `--help` works; bare run (no args) prints help and exits 0:
-  ```python
-  if len(sys.argv) == 1:
-      parser.print_help()
-      return 0
-  ```
-- `main() -> int`, `sys.exit(main())`.
-- Header docstring drives `--help`. To avoid a DOUBLE "options" block, do NOT feed the whole docstring as description:
-  ```python
-  parser = argparse.ArgumentParser(
-      description=__doc__.strip().splitlines()[0],          # summary line only
-      epilog=__doc__[__doc__.index("Examples:"):].rstrip(), # examples block
-      formatter_class=argparse.RawDescriptionHelpFormatter,
-  )
-  ```
-  Options render once from native `help=` on each arg. Use friendly `metavar="<x>"`.
+## CLI conventions (the one CLI tool)
+- Shebang `#!/usr/bin/env python3`, `chmod +x`, `main() -> int`, `sys.exit(main())`.
+- Subcommands via argparse subparsers; bare run (no args) prints help, exits 0. Header docstring drives `--help`: `description = __doc__` summary line, `epilog` = the Examples block, `RawDescriptionHelpFormatter`. Friendly `metavar="<x>"`.
+- Mutually exclusive choices use a group (e.g. remove `--id` | `--symbol`, required). Fail fast with clear errors and exit codes: 0 ok, 1 config/runtime, 2 usage, 3 daemon-down.
 
-## Docstring headers
-CLI tool format:
-```
-toolname.py - one-line description.
-
-Usage: ./toolname.py --foo <x> [--bar <y>]
-
-Options:
-  --foo <x>   What it is.
-  --bar <y>   What it is (default: ...).
-
-Examples:
-  ./toolname.py --foo a
-  ./toolname.py --foo a --bar b
-```
-- Compact description only - no "Why:" essays.
-- Simple example first (common manual use), then extended. Single-flag tools get one example; do not fake depth.
-
-Lib format: one-line description, "Library module, not a CLI.", then an import snippet.
+## Daemon
+- `main.py _daemon` runs the poll loop; the CLI spawns it detached (`start_new_session`, stdio to DEVNULL) on `add`/`start` if not already running.
+- Liveness is flock-based, NOT `os.kill(pid,0)` (immune to PID reuse): the pidfile IS the lock (`proclock.DaemonLock`); the daemon holds it for life, `running_pid()` probes by trying to acquire. The daemon acquires the lock as its FIRST action and exits if it can't (lost the spawn race).
+- Handle SIGTERM/SIGINT: set a stop flag, finish the cycle, release the lock. `stop` sends SIGTERM, polls, escalates to SIGKILL.
+- Watchlist + comms live in SQLite (`store.py`); the store IS the CLI<->daemon channel (no socket). WAL + `busy_timeout` + `synchronous=NORMAL` on every connection. Add is atomically idempotent via `UNIQUE(...)` + `INSERT ON CONFLICT DO NOTHING`; conditions stored as canonical sorted JSON.
+- Re-read the store each cycle (live add/remove). Auto-exit after N empty cycles (grace, so a concurrent add is seen first).
+- Dedup state (cross side, last candle open_time) is PERSISTED per watch (`watch_state`) and reloaded on start - respawn-only makes restarts frequent, so in-memory dedup would miss or duplicate alerts.
+- Liveness gap is accepted (respawn-on-CLI-only): `status` reports UP/DOWN/WEDGED (stale `last_cycle` = WEDGED), exit 3 when down. Daemon stamps `last_cycle` each cycle and logs via RotatingFileHandler.
 
 ## Tooling and secrets
-- uv for everything: `uv sync`, `uv add <pkg>`, `uv run ./tool.py`.
-- Single global `.env` at the repo root holds secrets for ALL scripts (gitignored; commit `.env.example`). Never hardcode tokens.
-- Keep `.env.example` key-synced with `.env`: every key in one exists in the other; the example holds placeholders/blanks only, never real values. Add a key -> add it to both.
-- Load it via `config.load_env()` at each tool's entrypoint - never bare `load_dotenv()`. `config.py` anchors `.env` to the repo root (`Path(__file__).parent`), so it loads regardless of CWD (cron-safe). Libs read `os.environ`; only entrypoints load.
-- Long-running loops: `logging` with timestamps, not print. Catch per-iteration errors, log, keep looping.
+- uv for everything: `uv sync`, `uv add <pkg>`, `uv run ./src/main.py`.
+- Single global `.env` at the repo root for ALL scripts (gitignored; commit `.env.example`, kept key-synced). Never hardcode tokens. Load via `config.load_env()` at the entrypoint (anchored to root via `paths.ENV`, CWD-independent). Libs read `os.environ`.
+- Long-running loop: `logging` with timestamps; catch per-iteration errors, log, keep looping; isolate per-symbol failures so one bad symbol never kills the cycle.
 
 ## Binance specifics
-- Base `https://fapi.binance.com` (USD-M futures), read-only public endpoints, `timeout` on every call.
-- Last closed kline = `klines[-2]` (`[-1]` is the still-forming candle).
-- Use Last price for levels drawn on the chart; Mark price only when explicitly needed.
+- Base `https://fapi.binance.com` (USD-M futures), read-only, `timeout` on every call.
+- Fetch ALL prices in one call (`get_all_prices`, flat weight) - scales to any N; klines per unique (symbol, timeframe). Handle 418/429 with backoff.
+- Last closed kline = `klines[-2]` (`[-1]` still forming). Use Last price for chart levels; Mark only when explicitly needed.
+- Validate symbols against `/exchangeInfo` at add-time.
 
 ## Conditions
 - Named registry; one interface `check(ctx, level, state) -> bool`, dedup state owned inside the condition.
-- First observation sets a baseline and does NOT fire (no stale alert on startup).
-- One alert per event: cross = per side flip, close = per candle.
+- First observation sets a baseline and does NOT fire. One alert per event: cross = per side flip, close = per candle.
 - Add a condition = one function + one `REGISTRY` row.
-- Auto-select (`--condition-auto`, monitor default): from launch price - below level picks all `*above`, at/above picks all `*below`. Suffix-driven in `auto_conditions()`, so new directional conditions are picked up free. Startup snapshot, not re-evaluated per poll.
+- Auto-select: below level picks all `*above`, at/above picks all `*below` (suffix-driven `auto_conditions()`). Resolved at the daemon's FIRST eval of a watch (price snapshot then) and persisted as concrete names - NOT at add-time (price can move before the daemon sees it).
 
 ## Notifier
-- Providers are a dict registry; importable `notify(message, provider)` plus a CLI.
-- Add a provider = one `_send_x` function + one `_PROVIDERS` row.
+- Providers are a dict registry; importable `notify(message, provider)`. Add a provider = one `_send_x` function + one `_PROVIDERS` row.
 
 ## New-file checklist
-- [ ] Decide first: CLI tool (run directly) or lib (imported only)? Do not CLI-ify a lib.
-- CLI tool: self-contained, shebang + executable; `--help` + bare-run-prints-help; header docstring (desc / Usage / Options / Examples); zero reusable logic (lives in a lib).
+- [ ] CLI tool or lib? Only `main.py` is a CLI; new behavior is almost always a lib.
 - Lib: no argparse/shebang/`__main__`; import-only docstring with a usage snippet.
-- [ ] Verify: synthetic logic test + one live probe before claiming done.
+- [ ] Verify: synthetic logic test (stub `notify`) + one live daemon smoke test in an isolated `BFM_DATA_DIR` before claiming done.

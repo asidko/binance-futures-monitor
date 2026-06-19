@@ -1,0 +1,154 @@
+"""store.py - SQLite watchlist: the durable store and CLI<->daemon channel.
+
+Library module, not a CLI. WAL + busy_timeout let the daemon read while the
+CLI writes. Watches are unique on (symbol, level, timeframe, conditions,
+provider) so add is atomically idempotent. Dedup state and the daemon
+heartbeat live in sibling tables.
+
+  import store; conn = store.connect(); store.init_db(conn)
+"""
+import json
+import sqlite3
+import time
+from dataclasses import dataclass
+
+import paths
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS watches (
+    id         INTEGER PRIMARY KEY,
+    symbol     TEXT NOT NULL,
+    level      REAL NOT NULL,
+    timeframe  TEXT NOT NULL,
+    conditions TEXT NOT NULL,
+    provider   TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(symbol, level, timeframe, conditions, provider)
+);
+CREATE TABLE IF NOT EXISTS watch_state (
+    watch_id   INTEGER PRIMARY KEY REFERENCES watches(id) ON DELETE CASCADE,
+    resolved   TEXT,
+    state_json TEXT NOT NULL DEFAULT '{}',
+    updated_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS daemon_meta (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    started_at INTEGER,
+    last_cycle INTEGER
+);
+"""
+
+
+@dataclass
+class Watch:
+    id: int
+    symbol: str
+    level: float
+    timeframe: str
+    conditions: str  # canonical JSON list, or "auto"
+    provider: str
+
+
+def connect() -> sqlite3.Connection:
+    paths.ensure_data_dir()
+    conn = sqlite3.connect(paths.DB, timeout=5.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def init_db(conn: sqlite3.Connection) -> None:
+    conn.executescript(_SCHEMA)
+    conn.commit()
+
+
+def canonical_conditions(condition_names: list[str] | None) -> str:
+    if not condition_names:
+        return "auto"
+    return json.dumps(sorted(condition_names))
+
+
+def add_watch(conn, symbol: str, level: float, timeframe: str,
+              condition_names: list[str] | None, provider: str) -> tuple[int, bool]:
+    conds = canonical_conditions(condition_names)
+    cur = conn.execute(
+        "INSERT INTO watches(symbol, level, timeframe, conditions, provider, created_at) "
+        "VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING",
+        (symbol, level, timeframe, conds, provider, int(time.time())),
+    )
+    conn.commit()
+    created = cur.rowcount > 0
+    row = conn.execute(
+        "SELECT id FROM watches WHERE symbol=? AND level=? AND timeframe=? AND conditions=? AND provider=?",
+        (symbol, level, timeframe, conds, provider),
+    ).fetchone()
+    return row["id"], created
+
+
+def list_watches(conn) -> list[Watch]:
+    rows = conn.execute(
+        "SELECT id, symbol, level, timeframe, conditions, provider FROM watches ORDER BY symbol, level"
+    ).fetchall()
+    return [Watch(**dict(row)) for row in rows]
+
+
+def remove_by_id(conn, watch_id: int) -> int:
+    cur = conn.execute("DELETE FROM watches WHERE id=?", (watch_id,))
+    conn.commit()
+    return cur.rowcount
+
+
+def remove_by_symbol(conn, symbol: str) -> int:
+    cur = conn.execute("DELETE FROM watches WHERE symbol=?", (symbol,))
+    conn.commit()
+    return cur.rowcount
+
+
+def count_watches(conn) -> int:
+    return conn.execute("SELECT COUNT(*) AS n FROM watches").fetchone()["n"]
+
+
+def load_state(conn, watch_id: int) -> tuple[str | None, dict]:
+    row = conn.execute(
+        "SELECT resolved, state_json FROM watch_state WHERE watch_id=?", (watch_id,)
+    ).fetchone()
+    if row is None:
+        return None, {}
+    return row["resolved"], json.loads(row["state_json"] or "{}")
+
+
+def save_state(conn, watch_id: int, resolved: str, state: dict) -> None:
+    conn.execute(
+        "INSERT INTO watch_state(watch_id, resolved, state_json, updated_at) VALUES(?,?,?,?) "
+        "ON CONFLICT(watch_id) DO UPDATE SET resolved=excluded.resolved, "
+        "state_json=excluded.state_json, updated_at=excluded.updated_at",
+        (watch_id, resolved, json.dumps(state), int(time.time())),
+    )
+    conn.commit()
+
+
+def set_started(conn) -> None:
+    now = int(time.time())
+    conn.execute(
+        "INSERT INTO daemon_meta(id, started_at, last_cycle) VALUES(1, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET started_at=excluded.started_at",
+        (now, now),
+    )
+    conn.commit()
+
+
+def set_heartbeat(conn) -> None:
+    conn.execute(
+        "INSERT INTO daemon_meta(id, last_cycle) VALUES(1, ?) "
+        "ON CONFLICT(id) DO UPDATE SET last_cycle=excluded.last_cycle",
+        (int(time.time()),),
+    )
+    conn.commit()
+
+
+def get_meta(conn) -> dict:
+    row = conn.execute("SELECT started_at, last_cycle FROM daemon_meta WHERE id=1").fetchone()
+    return dict(row) if row else {}

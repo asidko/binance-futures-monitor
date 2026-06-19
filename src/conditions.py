@@ -1,6 +1,6 @@
 """conditions.py - named price/kline level conditions with built-in dedup.
 
-Library module (imported by monitor.py), not a CLI. Each condition is
+Library module (imported by main.py), not a CLI. Each condition is
 check(ctx, level, state) -> bool with dedup owned inside; registered by name in
 REGISTRY for monitor's --condition. Add one = one function + one REGISTRY row.
 
