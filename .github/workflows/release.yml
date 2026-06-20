@@ -14,8 +14,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04      # older glibc -> runs on more Linux boxes
-          - os: macos-14          # arm64 (Apple Silicon); Intel macs build from source
+          - os: ubuntu-22.04      # linux x86_64 (older glibc -> runs on more boxes)
+          - os: ubuntu-22.04-arm  # linux arm64 (Pi, Graviton, ARM VPS)
+          - os: macos-14          # macOS arm64 (Apple Silicon); Intel macs build from source
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -37,3 +38,31 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/bfm-*
+          body: |
+            ## Install
+
+            One-liner (auto-detects OS/arch, installs to `~/.local/bin`):
+
+            ```
+            curl -fsSL https://raw.githubusercontent.com/asidko/binance-futures-monitor/main/install.sh | sh
+            ```
+
+            ### Manual
+
+            Download the asset for your platform below, then:
+
+            ```
+            # user-local (no sudo) - make sure ~/.local/bin is on your PATH
+            chmod +x bfm-* && mkdir -p ~/.local/bin && mv bfm-* ~/.local/bin/bfm
+
+            # system-wide (sudo)
+            chmod +x bfm-* && sudo mv bfm-* /usr/local/bin/bfm
+            ```
+
+            macOS: clear the Gatekeeper quarantine flag before first run:
+
+            ```
+            xattr -d com.apple.quarantine ~/.local/bin/bfm
+            ```
+
+            Then run `bfm --help`.
