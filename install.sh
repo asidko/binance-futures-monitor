@@ -60,6 +60,9 @@ mkdir -p "$INSTALL_DIR"
 echo "downloading ${BIN}-${target} (${TAG:-latest})"
 curl -fSL "$url" -o "$INSTALL_DIR/$BIN"
 chmod 755 "$INSTALL_DIR/$BIN"
+# macOS: strip the Gatekeeper quarantine flag so the binary runs without a prompt
+# (a no-op when the flag is absent, e.g. plain curl downloads)
+[ "$(uname -s)" = "Darwin" ] && xattr -d com.apple.quarantine "$INSTALL_DIR/$BIN" 2>/dev/null || true
 echo "installed $INSTALL_DIR/$BIN"
 
 case ":$PATH:" in
