@@ -77,5 +77,7 @@ case ":$PATH:" in
     *) echo "warning: $INSTALL_DIR is not in PATH - add it to your shell profile" ;;
 esac
 
+echo "running first-time setup (unpacks the binary, may take a moment)..."
+"$INSTALL_DIR/$BIN" --help >/dev/null 2>&1 || true
+echo "config created at $CONFIG_DIR/config.toml (edit for Telegram alerts)"
 echo "done. run: $BIN --help"
-echo "config is auto-created at $CONFIG_DIR/config.toml on first run (edit for Telegram)"

@@ -128,7 +128,6 @@ def _resolve_target(args) -> tuple[str, list[float]] | None:
 
 
 def cmd_add(args) -> int:
-    config.load()
     resolved = _resolve_provider(args)
     if resolved is None:
         return 1
@@ -272,7 +271,6 @@ def cmd_logs(args) -> int:
 
 
 def cmd_daemon(args) -> int:
-    config.load()
     return daemon_mod.run_daemon(max(args.interval, _MIN_INTERVAL))
 
 
@@ -287,6 +285,7 @@ def _seconds(timeframe: str) -> int:
 
 
 def main() -> int:
+    config.load()  # auto-create config.toml + export env, even for --help/bare run
     # Only resolve the banner (which may shell out to git from source) when help
     # or version is actually requested; hot commands and `_daemon` skip the fork.
     banner = version.banner() if {"-h", "--help", "-v", "--version"} & set(sys.argv[1:]) else None
