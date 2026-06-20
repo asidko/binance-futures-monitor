@@ -75,8 +75,9 @@ def _eval_watch(conn, watch: store.Watch, prices: dict, klines: dict) -> None:
             try:
                 notify(message, watch.provider)
             except Exception:
-                log.exception("notify failed: %s", message)
-            store.remove_by_id(conn, watch.id)  # one-shot: fire once, then auto-delete (state cascades)
+                log.exception("notify failed, keeping watch %s to retry", watch.id)
+                return  # don't persist consumed state -> re-evaluates next cycle
+            store.remove_by_id(conn, watch.id)  # one-shot: alert delivered, auto-delete (state cascades)
             log.info("auto-removed watch %s after alert", watch.id)
             return
 

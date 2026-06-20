@@ -102,7 +102,7 @@ def cmd_add(args) -> int:
         shown = ",".join(sorted(cond_names))
         print(f"{'added' if created else 'exists'} #{watch_id} {symbol} @ {level} [{shown}] {args.timeframe} ({args.provider})")
     spawned = _ensure_daemon(interval)
-    print(f"daemon {'spawned' if spawned else 'already running'}")
+    print(f"monitoring {'started' if spawned else 'already running'}")
     return 0
 
 
@@ -166,7 +166,7 @@ def cmd_status(args) -> int:
 
 def cmd_start(args) -> int:
     spawned = _ensure_daemon(max(args.interval, _MIN_INTERVAL))
-    print("daemon spawned" if spawned else "already running")
+    print("monitoring started" if spawned else "monitoring already running")
     return 0
 
 
@@ -195,6 +195,7 @@ def cmd_logs(args) -> int:
 
 
 def cmd_daemon(args) -> int:
+    config.load_env()
     return daemon_mod.run_daemon(max(args.interval, _MIN_INTERVAL))
 
 
