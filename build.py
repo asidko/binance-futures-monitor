@@ -26,15 +26,13 @@ def _target() -> str:
 
 
 def _stamp_build() -> None:
-    """Freeze version + commit into src/_build.py; the binary has no git/pyproject."""
-    import tomllib
-    with open(ROOT / "pyproject.toml", "rb") as f:
-        version = tomllib.load(f)["project"]["version"]
-    out = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
-                         capture_output=True, text=True)
-    commit = out.stdout.strip() if out.returncode == 0 else "unknown"
-    (ROOT / "src" / "_build.py").write_text(f'VERSION = "{version}"\nCOMMIT = "{commit}"\n')
-    print(f"stamped build: {version} ({commit})")
+    """Freeze version + commit into src/_build.py; the binary has no git/pyproject.
+    Reuses version.info() (source-mode here) so the stamp matches what source reports."""
+    sys.path.insert(0, str(ROOT / "src"))
+    import version
+    ver, commit = version.info()
+    (ROOT / "src" / "_build.py").write_text(f'VERSION = "{ver}"\nCOMMIT = "{commit}"\n')
+    print(f"stamped build: {ver} ({commit})")
 
 
 def main() -> int:
