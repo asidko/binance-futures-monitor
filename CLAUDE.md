@@ -25,7 +25,7 @@ Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/mai
 - Watchlist + comms live in SQLite (`store.py`); the store IS the CLI<->daemon channel (no socket). WAL + `busy_timeout` + `synchronous=NORMAL` on every connection. Add is atomically idempotent via `UNIQUE(...)` + `INSERT ON CONFLICT DO NOTHING`; conditions stored as canonical sorted JSON. Schema changes ship as additive `ALTER TABLE` in `store._migrate` (e.g. `provider_arg`), since `CREATE IF NOT EXISTS` never alters an existing table.
 - Re-read the store each cycle (live add/remove). Auto-exit after N empty cycles (grace, so a concurrent add is seen first).
 - Dedup state (cross side, last candle open_time) is PERSISTED per watch (`watch_state`) and reloaded on start - respawn-only makes restarts frequent, so in-memory dedup would miss or duplicate alerts.
-- Alert delivery is the commit point: on fire the daemon calls `notify`, and ONLY on success does it broadcast to the `alerts` table + delete the one-shot watch; a failed send keeps the watch (no state persist) to retry. Every delivered alert is broadcast regardless of provider, so `bfm monitor` (tails `alerts` by polling) sees them all.
+- Alert delivery is the commit point: on fire the daemon calls `notify`, and ONLY on success does it broadcast to the `alerts` table + retire the fired condition (`store.update_conditions`, or delete the watch when it was the last one); a failed send un-consumes that one condition's state (deepcopy revert) to retry next cycle. Every delivered alert is broadcast regardless of provider, so `bfm monitor` (tails `alerts` by polling) sees them all.
 - Liveness gap is accepted (respawn-on-CLI-only): `status` reports UP/DOWN/WEDGED (stale `last_cycle` = WEDGED), exit 3 when down. Daemon stamps `last_cycle` each cycle and logs via RotatingFileHandler.
 
 ## Tooling and config
@@ -41,7 +41,7 @@ Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/mai
 
 ## Conditions
 - Named registry; one interface `check(ctx, level, state) -> bool`, dedup state owned inside the condition.
-- First observation sets a baseline and does NOT fire. Watches are one-shot: the first condition to fire deletes the watch (daemon-side), so it alerts exactly once and never re-arms.
+- First observation sets a baseline and does NOT fire. Each condition is one-shot: when it fires the daemon retires just that condition (so siblings on the same watch stay armed, e.g. `crosses-above` firing leaves `closed-above` active); the watch is deleted once its last condition fires. `bfm list` shows only the still-active conditions.
 - Add a condition = one function + one `REGISTRY` row.
 - Omit `--condition` to auto-pick: below level picks all `*above`, at/above picks all `*below` (suffix-driven `auto_conditions()`). Resolved to concrete names at add-time (CLI fetches the current price), so the store always holds real condition names - there is no "auto" placeholder mode.
 

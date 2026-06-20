@@ -107,6 +107,21 @@ def add_watch(conn, symbol: str, level: float, timeframe: str,
     return row["id"], created, row["provider_arg"]
 
 
+def update_conditions(conn, watch_id: int, condition_names: list[str]) -> bool:
+    """Replace a watch's active conditions (used when one of several fires).
+    Returns False if the smaller set collides with an existing watch on the
+    unique key - this row is then dropped as redundant (state cascades)."""
+    conds = canonical_conditions(condition_names)
+    try:
+        conn.execute("UPDATE watches SET conditions=? WHERE id=?", (conds, watch_id))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        conn.execute("DELETE FROM watches WHERE id=?", (watch_id,))
+        conn.commit()
+        return False
+
+
 def list_watches(conn) -> list[Watch]:
     rows = conn.execute(
         "SELECT id, symbol, level, timeframe, conditions, provider, provider_arg "

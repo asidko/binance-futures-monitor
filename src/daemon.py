@@ -3,9 +3,10 @@
 Library module, not a CLI. Launched via `main.py _daemon`. Holds the flock
 for its whole life, persists dedup state per watch (survives restart), fetches
 all prices in one call, isolates per-symbol failures, and auto-exits when the
-watchlist stays empty. Watches are one-shot: the first condition to fire
-deletes the watch (state cascades), so it never re-alerts.
+watchlist stays empty. Each condition is one-shot: firing alerts once and drops
+that condition; the watch is deleted when its last condition fires.
 """
+import copy
 import json
 import logging
 import os
@@ -62,6 +63,7 @@ def _eval_watch(conn, watch: store.Watch, prices: dict, klines: dict) -> None:
     before = json.dumps(state, sort_keys=True)
     names = json.loads(watch.conditions)
 
+    fired = []
     for name in names:
         cond = conditions.REGISTRY.get(name)
         if cond is None:
@@ -69,24 +71,43 @@ def _eval_watch(conn, watch: store.Watch, prices: dict, klines: dict) -> None:
         if cond.kind == "kline" and "closed_kline" not in ctx:
             continue
         cstate = state.setdefault(name, {})
+        prev = copy.deepcopy(cstate)
         if cond.check(ctx, watch.level, cstate):
             message = _message(watch, cond, ctx)
             log.info("FIRED %s", message)
             try:
                 notify(message, watch.provider, watch.provider_arg)
             except Exception:
-                log.exception("notify failed, keeping watch %s to retry", watch.id)
-                return  # don't persist consumed state -> re-evaluates next cycle
-            store.remove_by_id(conn, watch.id)  # one-shot commit: alert delivered, auto-delete
+                state[name] = prev  # un-consume: leave it active, re-fire next cycle
+                log.exception("notify failed, keeping condition %s on watch %s", name, watch.id)
+                continue
+            fired.append(name)
             try:
                 store.record_alert(conn, message)  # best-effort broadcast to `bfm monitor`
             except Exception:
                 log.exception("record_alert failed for watch %s (alert already delivered)", watch.id)
-            log.info("auto-removed watch %s after alert", watch.id)
-            return
 
-    if json.dumps(state, sort_keys=True) != before:
+    if fired:
+        _retire_fired(conn, watch, names, fired, state)
+    elif json.dumps(state, sort_keys=True) != before:
         store.save_state(conn, watch.id, state)
+
+
+def _retire_fired(conn, watch: store.Watch, names: list, fired: list, state: dict) -> None:
+    """Each condition is one-shot: drop the ones that fired (and their dedup
+    state); delete the whole watch only once none remain active."""
+    remaining = [n for n in names if n not in fired]
+    for name in fired:
+        state.pop(name, None)
+    if not remaining:
+        store.remove_by_id(conn, watch.id)
+        log.info("auto-removed watch %s after last condition fired", watch.id)
+        return
+    store.save_state(conn, watch.id, state)
+    if store.update_conditions(conn, watch.id, remaining):
+        log.info("watch %s: %s fired, %s still active", watch.id, fired, remaining)
+    else:
+        log.info("watch %s redundant after %s fired (matched existing); removed", watch.id, fired)
 
 
 def run_once(conn) -> None:
