@@ -7,7 +7,7 @@ Commands:
   add      Add a one-shot watch (auto-removed after it fires once) and ensure the daemon is running.
   list     Show all watches.
   monitor  Stream alerts to this terminal until Ctrl-C.
-  remove   Remove a watch by id, or all watches for a symbol.
+  remove   Remove a watch by id, all watches for a symbol, or all watches.
   status   Show daemon state, watch count, last cycle.
   start    Ensure the daemon is running.
   stop     Stop the daemon.
@@ -21,6 +21,7 @@ Examples:
   ./main.py monitor                              (watch alerts live, any provider)
   ./main.py list
   ./main.py remove --id 3
+  ./main.py remove --all
   ./main.py status
 """
 # Build flags for `nuitka` (a portable single-file binary). Applied whenever
@@ -178,7 +179,10 @@ def cmd_list(args) -> int:
 def cmd_remove(args) -> int:
     conn = store.connect()
     store.init_db(conn)
-    if args.id is not None:
+    if args.all:
+        removed = store.remove_all(conn)
+        print(f"removed {removed} watch(es)")
+    elif args.id is not None:
         removed = store.remove_by_id(conn, args.id)
         print(f"removed {removed} watch(es) by id {args.id}")
     else:
@@ -313,10 +317,11 @@ def main() -> int:
     p_monitor = sub.add_parser("monitor", help="stream alerts to this terminal until Ctrl-C")
     p_monitor.set_defaults(func=cmd_monitor)
 
-    p_remove = sub.add_parser("remove", help="remove by id or symbol")
+    p_remove = sub.add_parser("remove", help="remove by id, symbol, or all")
     group = p_remove.add_mutually_exclusive_group(required=True)
     group.add_argument("--id", type=int, metavar="<id>")
     group.add_argument("--symbol", metavar="<sym>")
+    group.add_argument("--all", action="store_true", help="remove every watch")
     p_remove.set_defaults(func=cmd_remove)
 
     p_status = sub.add_parser("status", help="daemon state")

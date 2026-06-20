@@ -138,6 +138,12 @@ def remove_by_symbol(conn, symbol: str) -> int:
     return cur.rowcount
 
 
+def remove_all(conn) -> int:
+    cur = conn.execute("DELETE FROM watches")
+    conn.commit()
+    return cur.rowcount
+
+
 def count_watches(conn) -> int:
     return conn.execute("SELECT COUNT(*) AS n FROM watches").fetchone()["n"]
 
