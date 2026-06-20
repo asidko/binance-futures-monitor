@@ -286,13 +286,16 @@ def _seconds(timeframe: str) -> int:
 
 
 def main() -> int:
+    # Only resolve the banner (which may shell out to git from source) when help
+    # or version is actually requested; hot commands and `_daemon` skip the fork.
+    banner = version.banner() if {"-h", "--help", "-v", "--version"} & set(sys.argv[1:]) else None
     parser = argparse.ArgumentParser(
         prog="bfm",
-        description=version.banner(),
+        description=banner or f"bfm - {version.DESCRIPTION}",
         epilog=__doc__[__doc__.index("Examples:"):].rstrip(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("-v", "--version", action="version", version=version.banner())
+    parser.add_argument("-v", "--version", action="version", version=banner or "")
     sub = parser.add_subparsers(dest="command")
 
     p_add = sub.add_parser("add", help="add a watch and ensure the daemon runs")
