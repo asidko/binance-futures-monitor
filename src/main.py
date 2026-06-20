@@ -47,6 +47,7 @@ import notifier
 import paths
 import proclock
 import store
+import version
 
 _MIN_INTERVAL = 2.0
 _WEDGED_CYCLES = 3
@@ -286,10 +287,12 @@ def _seconds(timeframe: str) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=__doc__.strip().splitlines()[0],
+        prog="bfm",
+        description=version.banner(),
         epilog=__doc__[__doc__.index("Examples:"):].rstrip(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument("-v", "--version", action="version", version=version.banner())
     sub = parser.add_subparsers(dest="command")
 
     p_add = sub.add_parser("add", help="add a watch and ensure the daemon runs")

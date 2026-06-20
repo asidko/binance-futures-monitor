@@ -51,6 +51,10 @@ done
 command -v curl >/dev/null 2>&1 || { echo "curl is required" >&2; exit 1; }
 
 target=$(detect_target)
+if [ "$target" = "macos-x86_64" ]; then
+    echo "no prebuilt binary for Intel macOS - build from source: https://github.com/${REPO}#develop--build-from-source" >&2
+    exit 1
+fi
 if [ -n "$TAG" ]; then
     url="https://github.com/${REPO}/releases/download/${TAG}/${BIN}-${target}"
 else

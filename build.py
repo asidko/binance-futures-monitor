@@ -25,8 +25,23 @@ def _target() -> str:
     return f"bfm-{osname}-{arch}"
 
 
+def _stamp_build() -> None:
+    """Freeze version + commit into src/_build.py; the binary has no git/pyproject."""
+    import tomllib
+    with open(ROOT / "pyproject.toml", "rb") as f:
+        version = tomllib.load(f)["project"]["version"]
+    out = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
+                         capture_output=True, text=True)
+    commit = out.stdout.strip() if out.returncode == 0 else "unknown"
+    (ROOT / "src" / "_build.py").write_text(f'VERSION = "{version}"\nCOMMIT = "{commit}"\n')
+    print(f"stamped build: {version} ({commit})")
+
+
 def main() -> int:
-    cmd = [sys.executable, "-m", "nuitka", str(ENTRY)]
+    _stamp_build()
+    # --include-module: _build is imported only under `if paths.FROZEN`, so make
+    # sure Nuitka bundles it rather than relying on static import detection.
+    cmd = [sys.executable, "-m", "nuitka", "--include-module=_build", str(ENTRY)]
     print("building:", " ".join(cmd))
     subprocess.run(cmd, check=True, cwd=str(ROOT))
 
