@@ -11,7 +11,7 @@ Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/mai
 - The CLI tool holds ZERO reusable logic: parse args, call lib, render. Wire by importing, never subprocess - the ONE exception is the daemon re-spawning itself detached.
 - One file = one responsibility.
 - No magic literals for shared conventions: name a constant in the module that owns it AND place it next to what it describes - not orphaned at the top (e.g. `CONDITION_AUTO_ABOVE_SUFFIX` right above the `REGISTRY` whose keys follow it). Never sprinkle a bare `"-above"`.
-- `paths.py` is the single source of truth for all runtime locations (root, `.env`, db, pidfile, log), anchored to the repo root (parent of `src/`); override the data dir with `BFM_DATA_DIR`.
+- `paths.py` is the single source of truth for all runtime locations (root, `.env`, db, pidfile, log). Anchored to the repo root (parent of `src/`) when run from source, or to `~/.bfm` when frozen (Nuitka onefile, so an installed binary never litters its own dir); override the data dir with `BFM_DATA_DIR`. Nuitka sets no `sys.frozen` - detect via `__main__.__compiled__` and take the real binary path from `original_argv0`.
 
 ## CLI conventions (the one CLI tool)
 - Shebang `#!/usr/bin/env python3`, `chmod +x`, `main() -> int`, `sys.exit(main())`.
@@ -46,6 +46,9 @@ Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/mai
 
 ## Notifier
 - Providers are a dict registry; importable `notify(message, provider)`. Add a provider = one `_send_x` function + one `_PROVIDERS` row.
+
+## Packaging
+- Portable single-file binary via Nuitka onefile: `uv run python scripts/build.py` -> `dist/bfm-<os>-<arch>`. Build flags live as `# nuitka-project:` comments in `main.py` (versioned next to the code); `build.py` only invokes Nuitka and names the artifact. Pinned to Python 3.13 (`.python-version`; Nuitka has no stable 3.14 yet). Linux/macOS only - Windows needs a POSIX->Win port (`proclock` is `fcntl`-based). CI builds per-OS on a `v*` tag (`.github/workflows/release.yml`); `install.sh` fetches the right release asset to `~/.local/bin`.
 
 ## New-file checklist
 - [ ] CLI tool or lib? Only `main.py` is a CLI; new behavior is almost always a lib.

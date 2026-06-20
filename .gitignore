@@ -3,3 +3,8 @@
 __pycache__/
 *.pyc
 .monitor-data/
+dist/
+build/
+*.build/
+*.dist/
+*.onefile-build/

@@ -22,6 +22,13 @@ Examples:
   ./main.py remove --symbol DOGEUSDT
   ./main.py status
 """
+# Build flags for `nuitka` (a portable single-file binary). Applied whenever
+# nuitka compiles this module, so source and CI builds stay identical.
+# nuitka-project: --onefile
+# nuitka-project: --output-dir={MAIN_DIRECTORY}/../dist
+# nuitka-project: --output-filename=bfm
+# nuitka-project: --include-package-data=certifi
+# nuitka-project: --assume-yes-for-downloads
 import argparse
 import json
 import os
@@ -48,12 +55,18 @@ def _precheck_provider(provider: str) -> None:
         sys.exit(1)
 
 
+def _daemon_argv(interval: float) -> list[str]:
+    """Frozen: re-exec the real binary; source: python + this script."""
+    head = [str(paths.EXECUTABLE)] if paths.FROZEN else [sys.executable, os.path.abspath(__file__)]
+    return head + ["_daemon", "--interval", str(interval)]
+
+
 def _ensure_daemon(interval: float) -> bool:
     if proclock.running_pid(paths.PIDFILE) is not None:
         return False
     paths.ensure_data_dir()
     subprocess.Popen(
-        [sys.executable, os.path.abspath(__file__), "_daemon", "--interval", str(interval)],
+        _daemon_argv(interval),
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
         start_new_session=True, close_fds=True, cwd=str(paths.ROOT),
     )
