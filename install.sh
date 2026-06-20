@@ -7,7 +7,7 @@ set -e
 REPO="asidko/binance-futures-monitor"
 BIN="bfm"
 INSTALL_DIR="${BFM_INSTALL_DIR:-$HOME/.local/bin}"
-CONFIG_DIR="$HOME/.bfm"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/bfm"
 
 detect_target() {
     os=$(uname -s)
@@ -51,15 +51,10 @@ curl -fSL "$url" -o "$INSTALL_DIR/$BIN"
 chmod 755 "$INSTALL_DIR/$BIN"
 echo "installed $INSTALL_DIR/$BIN"
 
-mkdir -p "$CONFIG_DIR"
-if [ ! -f "$CONFIG_DIR/.env" ]; then
-    printf 'TELEGRAM_BOT_TOKEN=\nTELEGRAM_CHAT_ID=\n' > "$CONFIG_DIR/.env"
-    echo "created $CONFIG_DIR/.env - fill in your Telegram bot token and chat id"
-fi
-
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
     *) echo "warning: $INSTALL_DIR is not in PATH - add it to your shell profile" ;;
 esac
 
 echo "done. run: $BIN --help"
+echo "config is auto-created at $CONFIG_DIR/config.toml on first run (edit for Telegram)"

@@ -16,13 +16,14 @@ import paths
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS watches (
-    id         INTEGER PRIMARY KEY,
-    symbol     TEXT NOT NULL,
-    level      REAL NOT NULL,
-    timeframe  TEXT NOT NULL,
-    conditions TEXT NOT NULL,
-    provider   TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
+    id           INTEGER PRIMARY KEY,
+    symbol       TEXT NOT NULL,
+    level        REAL NOT NULL,
+    timeframe    TEXT NOT NULL,
+    conditions   TEXT NOT NULL,
+    provider     TEXT NOT NULL,
+    provider_arg TEXT,
+    created_at   INTEGER NOT NULL,
     UNIQUE(symbol, level, timeframe, conditions, provider)
 );
 CREATE TABLE IF NOT EXISTS watch_state (
@@ -35,7 +36,14 @@ CREATE TABLE IF NOT EXISTS daemon_meta (
     started_at INTEGER,
     last_cycle INTEGER
 );
+CREATE TABLE IF NOT EXISTS alerts (
+    id      INTEGER PRIMARY KEY,
+    ts      INTEGER NOT NULL,
+    message TEXT NOT NULL
+);
 """
+
+_ALERTS_KEEP = 1000  # the broadcast log is for live `monitor`, not history
 
 
 @dataclass
@@ -46,6 +54,7 @@ class Watch:
     timeframe: str
     conditions: str  # canonical JSON list of condition names
     provider: str
+    provider_arg: str | None  # e.g. output path for the file provider
 
 
 def connect() -> sqlite3.Connection:
@@ -61,7 +70,14 @@ def connect() -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA)
+    _migrate(conn)
     conn.commit()
+
+
+def _migrate(conn) -> None:
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(watches)")}
+    if "provider_arg" not in cols:
+        conn.execute("ALTER TABLE watches ADD COLUMN provider_arg TEXT")
 
 
 def canonical_conditions(condition_names: list[str]) -> str:
@@ -69,12 +85,12 @@ def canonical_conditions(condition_names: list[str]) -> str:
 
 
 def add_watch(conn, symbol: str, level: float, timeframe: str,
-              condition_names: list[str], provider: str) -> tuple[int, bool]:
+              condition_names: list[str], provider: str, provider_arg: str | None) -> tuple[int, bool]:
     conds = canonical_conditions(condition_names)
     cur = conn.execute(
-        "INSERT INTO watches(symbol, level, timeframe, conditions, provider, created_at) "
-        "VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING",
-        (symbol, level, timeframe, conds, provider, int(time.time())),
+        "INSERT INTO watches(symbol, level, timeframe, conditions, provider, provider_arg, created_at) "
+        "VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING",
+        (symbol, level, timeframe, conds, provider, provider_arg, int(time.time())),
     )
     conn.commit()
     created = cur.rowcount > 0
@@ -87,9 +103,27 @@ def add_watch(conn, symbol: str, level: float, timeframe: str,
 
 def list_watches(conn) -> list[Watch]:
     rows = conn.execute(
-        "SELECT id, symbol, level, timeframe, conditions, provider FROM watches ORDER BY symbol, level"
+        "SELECT id, symbol, level, timeframe, conditions, provider, provider_arg "
+        "FROM watches ORDER BY symbol, level"
     ).fetchall()
     return [Watch(**dict(row)) for row in rows]
+
+
+def record_alert(conn, message: str) -> None:
+    conn.execute("INSERT INTO alerts(ts, message) VALUES(?, ?)", (int(time.time()), message))
+    conn.execute("DELETE FROM alerts WHERE id <= (SELECT MAX(id) FROM alerts) - ?", (_ALERTS_KEEP,))
+    conn.commit()
+
+
+def latest_alert_id(conn) -> int:
+    return conn.execute("SELECT COALESCE(MAX(id), 0) AS n FROM alerts").fetchone()["n"]
+
+
+def alerts_after(conn, after_id: int) -> list[tuple[int, int, str]]:
+    rows = conn.execute(
+        "SELECT id, ts, message FROM alerts WHERE id > ? ORDER BY id", (after_id,)
+    ).fetchall()
+    return [(r["id"], r["ts"], r["message"]) for r in rows]
 
 
 def remove_by_id(conn, watch_id: int) -> int:

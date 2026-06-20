@@ -1,0 +1,10 @@
+# Default bfm config. The real file is auto-created at ~/.config/bfm/config.toml
+# on first run; this copy documents the format. Fill in Telegram to push alerts
+# there; otherwise alerts fall back to stdout (watch them live with `bfm monitor`).
+
+# default provider when --provider is omitted: "telegram" | "stdout" | "file" | "callback"
+default_provider = ""
+
+[telegram]
+bot_token = ""
+chat_id = ""

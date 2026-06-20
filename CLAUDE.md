@@ -11,7 +11,7 @@ Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/mai
 - The CLI tool holds ZERO reusable logic: parse args, call lib, render. Wire by importing, never subprocess - the ONE exception is the daemon re-spawning itself detached.
 - One file = one responsibility.
 - No magic literals for shared conventions: name a constant in the module that owns it AND place it next to what it describes - not orphaned at the top (e.g. `CONDITION_AUTO_ABOVE_SUFFIX` right above the `REGISTRY` whose keys follow it). Never sprinkle a bare `"-above"`.
-- `paths.py` is the single source of truth for all runtime locations (root, `.env`, db, pidfile, log). Anchored to the repo root (parent of `src/`) when run from source, or to `~/.bfm` when frozen (Nuitka onefile, so an installed binary never litters its own dir); override the data dir with `BFM_DATA_DIR`. Nuitka sets no `sys.frozen` - detect via `__main__.__compiled__` and take the real binary path from `original_argv0`.
+- `paths.py` is the single source of truth for all runtime locations. ONE dir holds everything (`config.toml`, `watches.db`, `daemon.pid`, `daemon.log`): `~/.config/bfm` (XDG, `XDG_CONFIG_HOME`-aware), override with `BFM_CONFIG_DIR`. `DATA_DIR` IS `CONFIG_DIR` - no separate data dir, no source-vs-frozen split for locations. Nuitka sets no `sys.frozen` - detect via `__main__.__compiled__`; `EXECUTABLE` (the real binary, from `original_argv0`) is used only to re-spawn the frozen daemon.
 
 ## CLI conventions (the one CLI tool)
 - Shebang `#!/usr/bin/env python3`, `chmod +x`, `main() -> int`, `sys.exit(main())`.
@@ -22,14 +22,15 @@ Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/mai
 - `main.py _daemon` runs the poll loop; the CLI spawns it detached (`start_new_session`, stdio to DEVNULL) on `add`/`start` if not already running.
 - Liveness is flock-based, NOT `os.kill(pid,0)` (immune to PID reuse): the pidfile IS the lock (`proclock.DaemonLock`); the daemon holds it for life, `running_pid()` probes by trying to acquire. The daemon acquires the lock as its FIRST action and exits if it can't (lost the spawn race).
 - Handle SIGTERM/SIGINT: set a stop flag, finish the cycle, release the lock. `stop` sends SIGTERM, polls, escalates to SIGKILL.
-- Watchlist + comms live in SQLite (`store.py`); the store IS the CLI<->daemon channel (no socket). WAL + `busy_timeout` + `synchronous=NORMAL` on every connection. Add is atomically idempotent via `UNIQUE(...)` + `INSERT ON CONFLICT DO NOTHING`; conditions stored as canonical sorted JSON.
+- Watchlist + comms live in SQLite (`store.py`); the store IS the CLI<->daemon channel (no socket). WAL + `busy_timeout` + `synchronous=NORMAL` on every connection. Add is atomically idempotent via `UNIQUE(...)` + `INSERT ON CONFLICT DO NOTHING`; conditions stored as canonical sorted JSON. Schema changes ship as additive `ALTER TABLE` in `store._migrate` (e.g. `provider_arg`), since `CREATE IF NOT EXISTS` never alters an existing table.
 - Re-read the store each cycle (live add/remove). Auto-exit after N empty cycles (grace, so a concurrent add is seen first).
 - Dedup state (cross side, last candle open_time) is PERSISTED per watch (`watch_state`) and reloaded on start - respawn-only makes restarts frequent, so in-memory dedup would miss or duplicate alerts.
+- Alert delivery is the commit point: on fire the daemon calls `notify`, and ONLY on success does it broadcast to the `alerts` table + delete the one-shot watch; a failed send keeps the watch (no state persist) to retry. Every delivered alert is broadcast regardless of provider, so `bfm monitor` (tails `alerts` by polling) sees them all.
 - Liveness gap is accepted (respawn-on-CLI-only): `status` reports UP/DOWN/WEDGED (stale `last_cycle` = WEDGED), exit 3 when down. Daemon stamps `last_cycle` each cycle and logs via RotatingFileHandler.
 
-## Tooling and secrets
+## Tooling and config
 - uv for everything: `uv sync`, `uv add <pkg>`, `uv run ./src/main.py`.
-- Single global `.env` at the repo root for ALL scripts (gitignored; commit `.env.example`, kept key-synced). Never hardcode tokens. Load via `config.load_env()` at the entrypoint (anchored to root via `paths.ENV`, CWD-independent). Libs read `os.environ`.
+- Config is `~/.config/bfm/config.toml` (TOML via stdlib `tomllib`, no dotenv). `config.load()` at the entrypoint auto-creates it from a template on first run, then exports non-empty values into `os.environ` (so libs keep reading `os.environ`; a real shell env still wins). The committed root `config.toml` is the documented default, never read at runtime. Never hardcode tokens.
 - Long-running loop: `logging` with timestamps; catch per-iteration errors, log, keep looping; isolate per-symbol failures so one bad symbol never kills the cycle.
 
 ## Binance specifics
@@ -44,8 +45,9 @@ Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/mai
 - Add a condition = one function + one `REGISTRY` row.
 - Omit `--condition` to auto-pick: below level picks all `*above`, at/above picks all `*below` (suffix-driven `auto_conditions()`). Resolved to concrete names at add-time (CLI fetches the current price), so the store always holds real condition names - there is no "auto" placeholder mode.
 
-## Notifier
-- Providers are a dict registry; importable `notify(message, provider)`. Add a provider = one `_send_x` function + one `_PROVIDERS` row.
+## Notifier and providers
+- Providers are a dict registry; importable `notify(message, provider, arg=None)`. Each sender is `_send_x(message, arg)`. Add a provider = one `_send_x` function + one `_PROVIDERS` row. Current: `telegram` (env-config), `file` (`arg`=path), `stdout` (no-op; surfaced via `monitor`), `callback` (`arg`=URL, GET with `?message=`).
+- Per-watch provider + its `arg` are stored in `watches.provider`/`provider_arg`. The CLI resolves `--provider` at add-time (`_resolve_provider`): explicit flag, else `DEFAULT_PROVIDER`, else `telegram` when configured else `stdout`; telegram falls back to `stdout` UNLESS explicitly requested (then it errors). `file`/`callback` validate their arg at add-time (writable path / http(s) URL).
 
 ## Packaging
 - Portable single-file binary via Nuitka onefile: `uv run python scripts/build.py` -> `dist/bfm-<os>-<arch>`. Build flags live as `# nuitka-project:` comments in `main.py` (versioned next to the code); `build.py` only invokes Nuitka and names the artifact. Pinned to Python 3.13 (`.python-version`; Nuitka has no stable 3.14 yet). Linux/macOS only - Windows needs a POSIX->Win port (`proclock` is `fcntl`-based). CI builds per-OS on a `v*` tag (`.github/workflows/release.yml`); `install.sh` fetches the right release asset to `~/.local/bin`.
@@ -53,4 +55,4 @@ Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/mai
 ## New-file checklist
 - [ ] CLI tool or lib? Only `main.py` is a CLI; new behavior is almost always a lib.
 - Lib: no argparse/shebang/`__main__`; import-only docstring with a usage snippet.
-- [ ] Verify: synthetic logic test (stub `notify`) + one live daemon smoke test in an isolated `BFM_DATA_DIR` before claiming done.
+- [ ] Verify: synthetic logic test (stub `notify`) + one live daemon smoke test in an isolated `BFM_CONFIG_DIR` before claiming done.

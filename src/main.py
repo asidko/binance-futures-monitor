@@ -6,6 +6,7 @@ Usage: ./main.py <command> [options]
 Commands:
   add      Add a one-shot watch (auto-removed after it fires once) and ensure the daemon is running.
   list     Show all watches.
+  monitor  Stream alerts to this terminal until Ctrl-C.
   remove   Remove a watch by id, or all watches for a symbol.
   status   Show daemon state, watch count, last cycle.
   start    Ensure the daemon is running.
@@ -15,11 +16,11 @@ Commands:
 Examples:
   ./main.py add DOGEUSDT 0.08285                 (shorthand: symbol then levels)
   ./main.py add AVGOUSDT 407.96 406.74           (multiple levels, one watch each)
-  ./main.py add --symbol DOGEUSDT --level 0.08285   (flag form, same as shorthand)
+  ./main.py add BTCUSDT 65000 --provider file --file alerts.log
   ./main.py add --symbol BTCUSDT --level 65000 --timeframe 1h --condition closed-above --condition closed-below
+  ./main.py monitor                              (watch alerts live, any provider)
   ./main.py list
   ./main.py remove --id 3
-  ./main.py remove --symbol DOGEUSDT
   ./main.py status
 """
 # Build flags for `nuitka` (a portable single-file binary). Applied whenever
@@ -41,18 +42,49 @@ import binance_client
 import conditions
 import config
 import daemon as daemon_mod
+import notifier
 import paths
 import proclock
 import store
 
 _MIN_INTERVAL = 2.0
 _WEDGED_CYCLES = 3
+_MONITOR_POLL = 0.5
 
 
-def _precheck_provider(provider: str) -> None:
-    if provider == "telegram" and not (os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID")):
-        print("error: TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set in .env (copy .env.example)", file=sys.stderr)
-        sys.exit(1)
+def _provider_label(provider: str, arg: str | None) -> str:
+    return f"{provider}:{arg}" if arg else provider
+
+
+def _resolve_provider(args) -> tuple[str, str | None] | None:
+    """Resolve the alert provider: explicit --provider, else DEFAULT_PROVIDER,
+    else telegram when configured, else stdout. Telegram falls back to stdout
+    unless explicitly requested. A provider's arg (path/url) and validation come
+    from its notifier.REGISTRY entry, read from the same-named CLI flag dest."""
+    explicit = args.provider is not None
+    provider = (args.provider or os.environ.get("DEFAULT_PROVIDER") or "").strip().lower()
+    if not provider:
+        provider = "telegram" if notifier.telegram_configured() else "stdout"
+    spec = notifier.REGISTRY.get(provider)
+    if spec is None:
+        print(f"error: unknown provider '{provider}' (have: {', '.join(notifier.PROVIDERS)})", file=sys.stderr)
+        return None
+    if provider == "telegram" and not notifier.telegram_configured():
+        if explicit:
+            print("error: --provider telegram but TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set", file=sys.stderr)
+            return None
+        provider, spec = "stdout", notifier.REGISTRY["stdout"]
+    if spec.arg_flag is None:
+        return provider, None
+    raw = getattr(args, provider)
+    if not raw:
+        print(f"error: --provider {provider} requires {spec.arg_flag}", file=sys.stderr)
+        return None
+    try:
+        return provider, spec.validate(raw)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return None
 
 
 def _daemon_argv(interval: float) -> list[str]:
@@ -68,7 +100,7 @@ def _ensure_daemon(interval: float) -> bool:
     subprocess.Popen(
         _daemon_argv(interval),
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-        start_new_session=True, close_fds=True, cwd=str(paths.ROOT),
+        start_new_session=True, close_fds=True, cwd=str(paths.DATA_DIR),
     )
     return True
 
@@ -93,8 +125,11 @@ def _resolve_target(args) -> tuple[str, list[float]] | None:
 
 
 def cmd_add(args) -> int:
-    config.load_env()
-    _precheck_provider(args.provider)
+    config.load()
+    resolved = _resolve_provider(args)
+    if resolved is None:
+        return 1
+    provider, provider_arg = resolved
     target = _resolve_target(args)
     if target is None:
         return 2
@@ -107,13 +142,16 @@ def cmd_add(args) -> int:
         print(f"warning: interval {interval}s > timeframe {args.timeframe}; intermediate closed-* candles may be missed",
               file=sys.stderr)
     price = None if args.conditions else binance_client.get_last_price(symbol)
+    shown_provider = _provider_label(provider, provider_arg)
     conn = store.connect()
     store.init_db(conn)
     for level in levels:
         cond_names = args.conditions or [c.name for c in conditions.auto_conditions(price, level)]
-        watch_id, created = store.add_watch(conn, symbol, level, args.timeframe, cond_names, args.provider)
+        watch_id, created = store.add_watch(conn, symbol, level, args.timeframe, cond_names, provider, provider_arg)
         shown = ",".join(sorted(cond_names))
-        print(f"{'added' if created else 'exists'} #{watch_id} {symbol} @ {level} [{shown}] {args.timeframe} ({args.provider})")
+        print(f"{'added' if created else 'exists'} #{watch_id} {symbol} @ {level} [{shown}] {args.timeframe} ({shown_provider})")
+    if provider == "stdout":
+        print("alerts go to stdout - watch them live with `bfm monitor`")
     spawned = _ensure_daemon(interval)
     print(f"monitoring {'started' if spawned else 'already running'}")
     return 0
@@ -132,7 +170,8 @@ def cmd_list(args) -> int:
     print(f"{'ID':>3}  {'SYMBOL':<12} {'LEVEL':>12}  {'TF':<4} {'CONDITIONS':<28} PROVIDER")
     for w in watches:
         conds = ",".join(json.loads(w.conditions))
-        print(f"{w.id:>3}  {w.symbol:<12} {w.level:>12g}  {w.timeframe:<4} {conds:<28} {w.provider}")
+        provider = _provider_label(w.provider, w.provider_arg)
+        print(f"{w.id:>3}  {w.symbol:<12} {w.level:>12g}  {w.timeframe:<4} {conds:<28} {provider}")
     return 0
 
 
@@ -177,6 +216,24 @@ def cmd_status(args) -> int:
     return code
 
 
+def cmd_monitor(args) -> int:
+    conn = store.connect()
+    store.init_db(conn)
+    if proclock.running_pid(paths.PIDFILE) is None:
+        print("note: daemon is not running - start it with `bfm start` or add a watch", file=sys.stderr)
+    after = store.latest_alert_id(conn)
+    print("watching for alerts (Ctrl-C to stop)...", file=sys.stderr)
+    try:
+        while True:
+            for alert_id, ts, message in store.alerts_after(conn, after):
+                stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+                print(f"{stamp}  {message}", flush=True)
+                after = alert_id
+            time.sleep(_MONITOR_POLL)
+    except KeyboardInterrupt:
+        return 0
+
+
 def cmd_start(args) -> int:
     spawned = _ensure_daemon(max(args.interval, _MIN_INTERVAL))
     print("monitoring started" if spawned else "monitoring already running")
@@ -208,7 +265,7 @@ def cmd_logs(args) -> int:
 
 
 def cmd_daemon(args) -> int:
-    config.load_env()
+    config.load()
     return daemon_mod.run_daemon(max(args.interval, _MIN_INTERVAL))
 
 
@@ -240,7 +297,11 @@ def main() -> int:
     p_add.add_argument("--condition", metavar="<name>", action="append", dest="conditions",
                        choices=list(conditions.REGISTRY),
                        help="repeatable; omit to auto-pick *above/*below by current price vs level")
-    p_add.add_argument("--provider", metavar="<name>", default="telegram")
+    p_add.add_argument("--provider", metavar="<name>", choices=notifier.PROVIDERS, default=None,
+                       help=f"{' | '.join(notifier.PROVIDERS)}; omit for DEFAULT_PROVIDER or telegram, falling back to stdout")
+    p_add.add_argument("--file", metavar="<path>", help="output file for the file provider")
+    p_add.add_argument("--callback-url", metavar="<url>", dest="callback",
+                       help="GET this URL (with ?message=...) for the callback provider")
     p_add.add_argument("--interval", metavar="<sec>", type=float, default=10.0,
                        help="daemon poll cadence; applied when the daemon (re)starts")
     p_add.set_defaults(func=cmd_add)
@@ -248,6 +309,9 @@ def main() -> int:
     p_list = sub.add_parser("list", help="list watches")
     p_list.add_argument("--json", action="store_true")
     p_list.set_defaults(func=cmd_list)
+
+    p_monitor = sub.add_parser("monitor", help="stream alerts to this terminal until Ctrl-C")
+    p_monitor.set_defaults(func=cmd_monitor)
 
     p_remove = sub.add_parser("remove", help="remove by id or symbol")
     group = p_remove.add_mutually_exclusive_group(required=True)

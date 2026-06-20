@@ -73,10 +73,11 @@ def _eval_watch(conn, watch: store.Watch, prices: dict, klines: dict) -> None:
             message = _message(watch, cond, ctx)
             log.info("FIRED %s", message)
             try:
-                notify(message, watch.provider)
+                notify(message, watch.provider, watch.provider_arg)
             except Exception:
                 log.exception("notify failed, keeping watch %s to retry", watch.id)
                 return  # don't persist consumed state -> re-evaluates next cycle
+            store.record_alert(conn, message)  # broadcast to `bfm monitor`, any provider
             store.remove_by_id(conn, watch.id)  # one-shot: alert delivered, auto-delete (state cascades)
             log.info("auto-removed watch %s after alert", watch.id)
             return
