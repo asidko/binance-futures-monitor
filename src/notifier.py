@@ -72,14 +72,15 @@ def _validate_url(url: str) -> str:
 class Provider:
     send: Callable[[str, str | None], None]
     arg_flag: str | None = None  # CLI flag a watch must supply; None = no arg
+    arg_dest: str | None = None  # argparse dest holding that flag's value
     validate: Callable[[str], str] | None = None  # normalize the arg or raise ValueError
 
 
 REGISTRY = {
     "telegram": Provider(_send_telegram),
-    "file": Provider(_send_file, "--file <path>", _validate_file),
+    "file": Provider(_send_file, "--file <path>", "file", _validate_file),
     "stdout": Provider(_send_stdout),
-    "callback": Provider(_send_callback, "--callback-url <url>", _validate_url),
+    "callback": Provider(_send_callback, "--callback-url <url>", "callback", _validate_url),
 }
 
 PROVIDERS = tuple(REGISTRY)

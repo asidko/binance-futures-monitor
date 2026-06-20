@@ -78,7 +78,7 @@ def _resolve_provider(args) -> tuple[str, str | None] | None:
         provider, spec = "stdout", notifier.REGISTRY["stdout"]
     if spec.arg_flag is None:
         return provider, None
-    raw = getattr(args, provider)
+    raw = getattr(args, spec.arg_dest)
     if not raw:
         print(f"error: --provider {provider} requires {spec.arg_flag}", file=sys.stderr)
         return None
