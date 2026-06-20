@@ -1,5 +1,7 @@
 # binance-futures-monitor
 
+![demo](demo.gif)
+
 Set a price level on any Binance USD-M futures symbol. When price hits it, `bfm`
 sends an alert (e.g. Telegram) and drops the watch. The background daemon polls
 all your watches at once.
