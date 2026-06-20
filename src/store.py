@@ -77,7 +77,10 @@ def init_db(conn: sqlite3.Connection) -> None:
 def _migrate(conn) -> None:
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(watches)")}
     if "provider_arg" not in cols:
-        conn.execute("ALTER TABLE watches ADD COLUMN provider_arg TEXT")
+        try:
+            conn.execute("ALTER TABLE watches ADD COLUMN provider_arg TEXT")
+        except sqlite3.OperationalError:
+            pass  # a concurrent first-run process (e.g. the daemon) added it first
 
 
 def canonical_conditions(condition_names: list[str]) -> str:
