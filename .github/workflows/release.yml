@@ -47,6 +47,12 @@ jobs:
             curl -fsSL https://raw.githubusercontent.com/asidko/binance-futures-monitor/main/install.sh | sh
             ```
 
+            Pin this exact version:
+
+            ```
+            curl -fsSL https://raw.githubusercontent.com/asidko/binance-futures-monitor/main/install.sh | sh -s -- --tag ${{ github.ref_name }}
+            ```
+
             ### Manual
 
             Download the asset for your platform below, then:
