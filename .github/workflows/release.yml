@@ -44,13 +44,13 @@ jobs:
             One-liner (auto-detects OS/arch, installs to `~/.local/bin`):
 
             ```
-            curl -fsSL https://raw.githubusercontent.com/asidko/binance-futures-monitor/main/install.sh | sh
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
             ```
 
             Pin this exact version:
 
             ```
-            curl -fsSL https://raw.githubusercontent.com/asidko/binance-futures-monitor/main/install.sh | sh -s -- --tag ${{ github.ref_name }}
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh -s -- --tag ${{ github.ref_name }}
             ```
 
             ### Manual
