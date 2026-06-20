@@ -45,5 +45,5 @@ def load() -> None:
 
 
 def _export(key: str, value) -> None:
-    if value:
+    if value and key not in os.environ:
         os.environ[key] = str(value)

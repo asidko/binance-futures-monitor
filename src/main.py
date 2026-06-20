@@ -143,14 +143,15 @@ def cmd_add(args) -> int:
         print(f"warning: interval {interval}s > timeframe {args.timeframe}; intermediate closed-* candles may be missed",
               file=sys.stderr)
     price = None if args.conditions else binance_client.get_last_price(symbol)
-    shown_provider = _provider_label(provider, provider_arg)
     conn = store.connect()
     store.init_db(conn)
     for level in levels:
         cond_names = args.conditions or [c.name for c in conditions.auto_conditions(price, level)]
-        watch_id, created = store.add_watch(conn, symbol, level, args.timeframe, cond_names, provider, provider_arg)
+        watch_id, created, stored_arg = store.add_watch(conn, symbol, level, args.timeframe, cond_names, provider, provider_arg)
         shown = ",".join(sorted(cond_names))
-        print(f"{'added' if created else 'exists'} #{watch_id} {symbol} @ {level} [{shown}] {args.timeframe} ({shown_provider})")
+        print(f"{'added' if created else 'exists'} #{watch_id} {symbol} @ {level} [{shown}] {args.timeframe} ({_provider_label(provider, stored_arg)})")
+        if not created and stored_arg != provider_arg:
+            print(f"note: #{watch_id} already targets {_provider_label(provider, stored_arg)}; remove it first to retarget", file=sys.stderr)
     if provider == "stdout":
         print("alerts go to stdout - watch them live with `bfm monitor`")
     spawned = _ensure_daemon(interval)

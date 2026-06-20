@@ -42,7 +42,7 @@ do_remove() {
 while [ $# -gt 0 ]; do
     case "$1" in
         --remove|remove|uninstall) do_remove ;;
-        --tag) TAG="$2"; shift 2 ;;
+        --tag) [ $# -ge 2 ] || { echo "--tag needs a value" >&2; exit 2; }; TAG="$2"; shift 2 ;;
         --tag=*) TAG="${1#--tag=}"; shift ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac

@@ -85,7 +85,10 @@ def canonical_conditions(condition_names: list[str]) -> str:
 
 
 def add_watch(conn, symbol: str, level: float, timeframe: str,
-              condition_names: list[str], provider: str, provider_arg: str | None) -> tuple[int, bool]:
+              condition_names: list[str], provider: str, provider_arg: str | None) -> tuple[int, bool, str | None]:
+    """Returns (id, created, stored_arg). When not created, stored_arg is the
+    existing watch's target, which may differ from the requested provider_arg
+    (the unique key omits it), so the caller can flag a silent collision."""
     conds = canonical_conditions(condition_names)
     cur = conn.execute(
         "INSERT INTO watches(symbol, level, timeframe, conditions, provider, provider_arg, created_at) "
@@ -95,10 +98,10 @@ def add_watch(conn, symbol: str, level: float, timeframe: str,
     conn.commit()
     created = cur.rowcount > 0
     row = conn.execute(
-        "SELECT id FROM watches WHERE symbol=? AND level=? AND timeframe=? AND conditions=? AND provider=?",
+        "SELECT id, provider_arg FROM watches WHERE symbol=? AND level=? AND timeframe=? AND conditions=? AND provider=?",
         (symbol, level, timeframe, conds, provider),
     ).fetchone()
-    return row["id"], created
+    return row["id"], created, row["provider_arg"]
 
 
 def list_watches(conn) -> list[Watch]:
