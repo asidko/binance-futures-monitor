@@ -27,7 +27,6 @@ CREATE TABLE IF NOT EXISTS watches (
 );
 CREATE TABLE IF NOT EXISTS watch_state (
     watch_id   INTEGER PRIMARY KEY REFERENCES watches(id) ON DELETE CASCADE,
-    resolved   TEXT,
     state_json TEXT NOT NULL DEFAULT '{}',
     updated_at INTEGER
 );
@@ -45,7 +44,7 @@ class Watch:
     symbol: str
     level: float
     timeframe: str
-    conditions: str  # canonical JSON list, or "auto"
+    conditions: str  # canonical JSON list of condition names
     provider: str
 
 
@@ -65,14 +64,12 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def canonical_conditions(condition_names: list[str] | None) -> str:
-    if not condition_names:
-        return "auto"
+def canonical_conditions(condition_names: list[str]) -> str:
     return json.dumps(sorted(condition_names))
 
 
 def add_watch(conn, symbol: str, level: float, timeframe: str,
-              condition_names: list[str] | None, provider: str) -> tuple[int, bool]:
+              condition_names: list[str], provider: str) -> tuple[int, bool]:
     conds = canonical_conditions(condition_names)
     cur = conn.execute(
         "INSERT INTO watches(symbol, level, timeframe, conditions, provider, created_at) "
@@ -111,21 +108,21 @@ def count_watches(conn) -> int:
     return conn.execute("SELECT COUNT(*) AS n FROM watches").fetchone()["n"]
 
 
-def load_state(conn, watch_id: int) -> tuple[str | None, dict]:
+def load_state(conn, watch_id: int) -> dict:
     row = conn.execute(
-        "SELECT resolved, state_json FROM watch_state WHERE watch_id=?", (watch_id,)
+        "SELECT state_json FROM watch_state WHERE watch_id=?", (watch_id,)
     ).fetchone()
     if row is None:
-        return None, {}
-    return row["resolved"], json.loads(row["state_json"] or "{}")
+        return {}
+    return json.loads(row["state_json"] or "{}")
 
 
-def save_state(conn, watch_id: int, resolved: str, state: dict) -> None:
+def save_state(conn, watch_id: int, state: dict) -> None:
     conn.execute(
-        "INSERT INTO watch_state(watch_id, resolved, state_json, updated_at) VALUES(?,?,?,?) "
-        "ON CONFLICT(watch_id) DO UPDATE SET resolved=excluded.resolved, "
+        "INSERT INTO watch_state(watch_id, state_json, updated_at) VALUES(?,?,?) "
+        "ON CONFLICT(watch_id) DO UPDATE SET "
         "state_json=excluded.state_json, updated_at=excluded.updated_at",
-        (watch_id, resolved, json.dumps(state), int(time.time())),
+        (watch_id, json.dumps(state), int(time.time())),
     )
     conn.commit()
 

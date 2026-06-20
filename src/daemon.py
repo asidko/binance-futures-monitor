@@ -41,14 +41,6 @@ def _setup_logging() -> None:
     sys.excepthook = lambda et, e, tb: log.error("uncaught", exc_info=(et, e, tb))
 
 
-def _resolve_conditions(watch: store.Watch, resolved: str | None, price: float) -> list[str]:
-    if resolved:
-        return json.loads(resolved)
-    if watch.conditions == "auto":
-        return [c.name for c in conditions.auto_conditions(price, watch.level)]
-    return json.loads(watch.conditions)
-
-
 def _message(watch: store.Watch, cond, ctx: dict) -> str:
     if cond.kind == "price":
         detail = f"price={ctx['price']}"
@@ -66,9 +58,9 @@ def _eval_watch(conn, watch: store.Watch, prices: dict, klines: dict) -> None:
     if kline is not None:
         ctx["closed_kline"] = kline
 
-    resolved, state = store.load_state(conn, watch.id)
+    state = store.load_state(conn, watch.id)
     before = json.dumps(state, sort_keys=True)
-    names = _resolve_conditions(watch, resolved, ctx["price"])
+    names = json.loads(watch.conditions)
 
     for name in names:
         cond = conditions.REGISTRY.get(name)
@@ -88,8 +80,8 @@ def _eval_watch(conn, watch: store.Watch, prices: dict, klines: dict) -> None:
             log.info("auto-removed watch %s after alert", watch.id)
             return
 
-    if json.dumps(state, sort_keys=True) != before or resolved != json.dumps(names):
-        store.save_state(conn, watch.id, json.dumps(names), state)
+    if json.dumps(state, sort_keys=True) != before:
+        store.save_state(conn, watch.id, state)
 
 
 def run_once(conn) -> None:

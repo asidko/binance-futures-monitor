@@ -69,11 +69,15 @@ def cmd_add(args) -> int:
     if _seconds(args.timeframe) and interval > _seconds(args.timeframe):
         print(f"warning: interval {interval}s > timeframe {args.timeframe}; intermediate closed-* candles may be missed",
               file=sys.stderr)
+    cond_names = args.conditions
+    if not cond_names:
+        price = binance_client.get_last_price(symbol)
+        cond_names = [c.name for c in conditions.auto_conditions(price, args.level)]
     conn = store.connect()
     store.init_db(conn)
-    watch_id, created = store.add_watch(conn, symbol, args.level, args.timeframe, args.conditions, args.provider)
+    watch_id, created = store.add_watch(conn, symbol, args.level, args.timeframe, cond_names, args.provider)
     spawned = _ensure_daemon(interval)
-    shown = ",".join(args.conditions) if args.conditions else "auto"
+    shown = ",".join(sorted(cond_names))
     print(f"{'added' if created else 'exists'} #{watch_id} {symbol} @ {args.level} [{shown}] {args.timeframe} ({args.provider})")
     print(f"daemon {'spawned' if spawned else 'already running'}")
     return 0
@@ -91,7 +95,7 @@ def cmd_list(args) -> int:
         return 0
     print(f"{'ID':>3}  {'SYMBOL':<12} {'LEVEL':>12}  {'TF':<4} {'CONDITIONS':<28} PROVIDER")
     for w in watches:
-        conds = "auto" if w.conditions == "auto" else ",".join(json.loads(w.conditions))
+        conds = ",".join(json.loads(w.conditions))
         print(f"{w.id:>3}  {w.symbol:<12} {w.level:>12g}  {w.timeframe:<4} {conds:<28} {w.provider}")
     return 0
 
@@ -195,7 +199,7 @@ def main() -> int:
     p_add.add_argument("--timeframe", metavar="<tf>", default="15m")
     p_add.add_argument("--condition", metavar="<name>", action="append", dest="conditions",
                        choices=list(conditions.REGISTRY),
-                       help="repeatable; omit for auto (picks *above/*below by price vs level)")
+                       help="repeatable; omit to auto-pick *above/*below by current price vs level")
     p_add.add_argument("--provider", metavar="<name>", default="telegram")
     p_add.add_argument("--interval", metavar="<sec>", type=float, default=10.0,
                        help="daemon poll cadence; applied when the daemon (re)starts")
