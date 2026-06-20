@@ -13,7 +13,9 @@ Commands:
   logs     Show the daemon log.
 
 Examples:
-  ./main.py add --symbol DOGEUSDT --level 0.08285
+  ./main.py add DOGEUSDT 0.08285                 (shorthand: symbol then levels)
+  ./main.py add AVGOUSDT 407.96 406.74           (multiple levels, one watch each)
+  ./main.py add --symbol DOGEUSDT --level 0.08285   (flag form, same as shorthand)
   ./main.py add --symbol BTCUSDT --level 65000 --timeframe 1h --condition closed-above --condition closed-below
   ./main.py list
   ./main.py remove --id 3
@@ -58,10 +60,32 @@ def _ensure_daemon(interval: float) -> bool:
     return True
 
 
+def _resolve_target(args) -> tuple[str, list[float]] | None:
+    """Merge flagged (--symbol/--level) and shorthand positional forms.
+    Positional: the non-numeric token is the symbol, the rest are levels."""
+    symbol = args.symbol
+    levels = list(args.levels or [])
+    for tok in args.rest:
+        try:
+            levels.append(float(tok))
+        except ValueError:
+            if symbol is not None:
+                print(f"error: multiple symbols given ({symbol}, {tok})", file=sys.stderr)
+                return None
+            symbol = tok
+    if not symbol or not levels:
+        print("error: need a symbol and at least one level (e.g. `add AVGOUSDT 407.96 406.74`)", file=sys.stderr)
+        return None
+    return symbol.upper(), levels
+
+
 def cmd_add(args) -> int:
     config.load_env()
     _precheck_provider(args.provider)
-    symbol = args.symbol.upper()
+    target = _resolve_target(args)
+    if target is None:
+        return 2
+    symbol, levels = target
     if not binance_client.symbol_exists(symbol):
         print(f"error: unknown trading symbol {symbol}", file=sys.stderr)
         return 1
@@ -69,16 +93,15 @@ def cmd_add(args) -> int:
     if _seconds(args.timeframe) and interval > _seconds(args.timeframe):
         print(f"warning: interval {interval}s > timeframe {args.timeframe}; intermediate closed-* candles may be missed",
               file=sys.stderr)
-    cond_names = args.conditions
-    if not cond_names:
-        price = binance_client.get_last_price(symbol)
-        cond_names = [c.name for c in conditions.auto_conditions(price, args.level)]
+    price = None if args.conditions else binance_client.get_last_price(symbol)
     conn = store.connect()
     store.init_db(conn)
-    watch_id, created = store.add_watch(conn, symbol, args.level, args.timeframe, cond_names, args.provider)
+    for level in levels:
+        cond_names = args.conditions or [c.name for c in conditions.auto_conditions(price, level)]
+        watch_id, created = store.add_watch(conn, symbol, level, args.timeframe, cond_names, args.provider)
+        shown = ",".join(sorted(cond_names))
+        print(f"{'added' if created else 'exists'} #{watch_id} {symbol} @ {level} [{shown}] {args.timeframe} ({args.provider})")
     spawned = _ensure_daemon(interval)
-    shown = ",".join(sorted(cond_names))
-    print(f"{'added' if created else 'exists'} #{watch_id} {symbol} @ {args.level} [{shown}] {args.timeframe} ({args.provider})")
     print(f"daemon {'spawned' if spawned else 'already running'}")
     return 0
 
@@ -194,8 +217,11 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command")
 
     p_add = sub.add_parser("add", help="add a watch and ensure the daemon runs")
-    p_add.add_argument("--symbol", metavar="<sym>", required=True)
-    p_add.add_argument("--level", metavar="<price>", type=float, required=True)
+    p_add.add_argument("rest", nargs="*", metavar="<symbol> <level>...",
+                       help="shorthand: `add AVGOUSDT 407.96 406.74` (symbol then levels)")
+    p_add.add_argument("--symbol", metavar="<sym>")
+    p_add.add_argument("--level", metavar="<price>", type=float, action="append", dest="levels",
+                       help="repeatable; each level becomes its own watch")
     p_add.add_argument("--timeframe", metavar="<tf>", default="15m")
     p_add.add_argument("--condition", metavar="<name>", action="append", dest="conditions",
                        choices=list(conditions.REGISTRY),
