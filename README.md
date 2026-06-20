@@ -1,9 +1,8 @@
 # binance-futures-monitor
 
-Watch Binance USD-M futures for price/level situations and get a Telegram alert
-when one fires. One small CLI (`bfm`) drives a background daemon that polls many
-symbol+level watches and alerts on named conditions. Each watch is one-shot: it
-fires once, then removes itself.
+Set a price level on any Binance USD-M futures symbol. When price hits it, `bfm`
+sends an alert (e.g. Telegram) and drops the watch. The background daemon polls
+all your watches at once.
 
 ## Install
 
@@ -42,32 +41,13 @@ bfm logs --follow
 bfm stop
 ```
 
-- Omit conditions and `bfm` auto-picks by current price: below the level it
-  watches `*above`, at/above it watches `*below`. Resolved at add-time, so
-  `list` always shows the real conditions.
+- Omit conditions and `bfm` picks the direction from the current price: if price
+  is below your level it alerts when price rises to it; if at or above, it alerts
+  when price falls to it. `list` shows the exact conditions it chose.
 - Pick conditions explicitly with flags:
   `bfm add --symbol BTCUSDT --level 65000 --timeframe 1h --condition closed-above`
 - Conditions: `crosses-above`, `crosses-below`, `closed-above`, `closed-below`.
 - `--interval` sets the daemon poll cadence; applied when the daemon (re)starts.
-
-## How it works
-
-`bfm` is both the CLI and (via an internal flag) the daemon. The watchlist lives
-in SQLite under `~/.bfm/.monitor-data/` - the CLI writes it, the daemon reads it
-each poll cycle. `add` spawns the daemon if it isn't running; the daemon
-auto-exits when the watchlist empties. A watch fires once and then deletes
-itself; the alert is the commit point, so a failed Telegram send keeps the watch
-to retry rather than dropping the alert. Override the data dir with `BFM_DATA_DIR`.
-
-## Notes / accepted limits
-
-- Liveness is respawn-on-CLI-only (no systemd): if the daemon dies while idle it
-  stays down until the next `add`/`start`. `status` reports UP/DOWN/WEDGED
-  (exit 3 when down).
-- Uses Last price (matches a line drawn on the chart), not Mark.
-- A cycle reads the latest CLOSED candle; if `--interval` > timeframe,
-  intermediate `closed-*` candles can be missed (`add` warns).
-- REST polling, not websocket; cross detection is only as fine as `--interval`.
 
 ## Develop / build from source
 
