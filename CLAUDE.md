@@ -40,7 +40,7 @@ Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/mai
 
 ## Conditions
 - Named registry; one interface `check(ctx, level, state) -> bool`, dedup state owned inside the condition.
-- First observation sets a baseline and does NOT fire. One alert per event: cross = per side flip, close = per candle.
+- First observation sets a baseline and does NOT fire. Watches are one-shot: the first condition to fire deletes the watch (daemon-side), so it alerts exactly once and never re-arms.
 - Add a condition = one function + one `REGISTRY` row.
 - Auto-select: below level picks all `*above`, at/above picks all `*below` (suffix-driven `auto_conditions()`). Resolved at the daemon's FIRST eval of a watch (price snapshot then) and persisted as concrete names - NOT at add-time (price can move before the daemon sees it).
 

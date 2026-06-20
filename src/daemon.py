@@ -3,7 +3,8 @@
 Library module, not a CLI. Launched via `main.py _daemon`. Holds the flock
 for its whole life, persists dedup state per watch (survives restart), fetches
 all prices in one call, isolates per-symbol failures, and auto-exits when the
-watchlist stays empty.
+watchlist stays empty. Watches are one-shot: the first condition to fire
+deletes the watch (state cascades), so it never re-alerts.
 """
 import json
 import logging
@@ -83,6 +84,9 @@ def _eval_watch(conn, watch: store.Watch, prices: dict, klines: dict) -> None:
                 notify(message, watch.provider)
             except Exception:
                 log.exception("notify failed: %s", message)
+            store.remove_by_id(conn, watch.id)  # one-shot: fire once, then auto-delete (state cascades)
+            log.info("auto-removed watch %s after alert", watch.id)
+            return
 
     if json.dumps(state, sort_keys=True) != before or resolved != json.dumps(names):
         store.save_state(conn, watch.id, json.dumps(names), state)

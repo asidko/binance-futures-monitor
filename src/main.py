@@ -4,7 +4,7 @@
 Usage: ./main.py <command> [options]
 
 Commands:
-  add      Add a watch and ensure the daemon is running.
+  add      Add a one-shot watch (auto-removed after it fires once) and ensure the daemon is running.
   list     Show all watches.
   remove   Remove a watch by id, or all watches for a symbol.
   status   Show daemon state, watch count, last cycle.
