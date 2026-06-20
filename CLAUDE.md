@@ -50,7 +50,7 @@ Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/mai
 - Per-watch provider + its `arg` are stored in `watches.provider`/`provider_arg`. The CLI resolves `--provider` at add-time (`_resolve_provider`): explicit flag, else `DEFAULT_PROVIDER`, else `telegram` when configured else `stdout`; telegram falls back to `stdout` UNLESS explicitly requested (then it errors). `file`/`callback` validate their arg at add-time (writable path / http(s) URL).
 
 ## Packaging
-- Portable single-file binary via Nuitka onefile: `uv run python scripts/build.py` -> `dist/bfm-<os>-<arch>`. Build flags live as `# nuitka-project:` comments in `main.py` (versioned next to the code); `build.py` only invokes Nuitka and names the artifact. Pinned to Python 3.13 (`.python-version`; Nuitka has no stable 3.14 yet). Linux/macOS only - Windows needs a POSIX->Win port (`proclock` is `fcntl`-based). CI builds per-OS on a `v*` tag (`.github/workflows/release.yml`); `install.sh` fetches the right release asset to `~/.local/bin`.
+- Portable single-file binary via Nuitka onefile: `uv run python build.py` -> `dist/bfm-<os>-<arch>`. Build flags live as `# nuitka-project:` comments in `main.py` (versioned next to the code); `build.py` only invokes Nuitka and names the artifact. Pinned to Python 3.13 (`.python-version`; Nuitka has no stable 3.14 yet). Linux/macOS only - Windows needs a POSIX->Win port (`proclock` is `fcntl`-based). CI builds per-OS on a `v*` tag (`.github/workflows/release.yml`); `install.sh` fetches the right release asset to `~/.local/bin`.
 
 ## New-file checklist
 - [ ] CLI tool or lib? Only `main.py` is a CLI; new behavior is almost always a lib.

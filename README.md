@@ -73,7 +73,7 @@ Build the portable binary (pinned to Python 3.13; flags live in
 `# nuitka-project:` comments in `src/main.py`):
 
 ```
-uv run python scripts/build.py     # -> dist/bfm-<os>-<arch>
+uv run python build.py     # -> dist/bfm-<os>-<arch>
 ```
 
 Releases are built per-OS by `.github/workflows/release.yml` on a `v*` tag.

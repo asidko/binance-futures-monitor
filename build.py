@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """build.py - compile a portable single-file binary with Nuitka.
 
-Run via `uv run python scripts/build.py`. Build flags live next to the code in
+Run via `uv run python build.py`. Build flags live next to the code in
 `src/main.py` (nuitka-project comments); this script only invokes Nuitka and
 names the artifact per OS/arch. CI calls this exact command on each runner.
 """
@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent
 ENTRY = ROOT / "src" / "main.py"
 DIST = ROOT / "dist"
 

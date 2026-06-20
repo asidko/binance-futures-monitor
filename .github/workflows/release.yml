@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --dev
-      - run: uv run python scripts/build.py
+      - run: uv run python build.py
       - uses: actions/upload-artifact@v4
         with:
           name: bfm-${{ matrix.os }}
