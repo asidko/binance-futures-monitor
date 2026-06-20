@@ -33,8 +33,11 @@ def ensure_config() -> None:
 
 def load() -> None:
     ensure_config()
-    with open(paths.CONFIG_FILE, "rb") as f:
-        cfg = tomllib.load(f)
+    try:
+        with open(paths.CONFIG_FILE, "rb") as f:
+            cfg = tomllib.load(f)
+    except tomllib.TOMLDecodeError as exc:
+        raise SystemExit(f"error: invalid config at {paths.CONFIG_FILE}: {exc}")
     telegram = cfg.get("telegram", {})
     _export("TELEGRAM_BOT_TOKEN", telegram.get("bot_token"))
     _export("TELEGRAM_CHAT_ID", telegram.get("chat_id"))
