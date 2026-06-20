@@ -38,7 +38,23 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/bfm-*
+          name: ${{ github.ref_name }} - price-level alerts for Binance futures
           body: |
+            **bfm** watches Binance USD-M futures and alerts you the moment price
+            hits a level you set. One small binary runs a background daemon over
+            all your watches. Each alert fires once, then the watch removes itself.
+
+            ## Highlights
+            - Single self-contained binary. No Python, no dependencies to install.
+            - Alert channels: Telegram, a file, stdout, or a webhook (callback URL).
+            - `bfm monitor` streams alerts live to your terminal, whatever channel a watch uses.
+            - Auto-picks the alert direction from the current price; add several levels in one command.
+            - Config and data sit in one place: `~/.config/bfm/config.toml`.
+
+            ## Platforms
+            - Linux x86_64 and arm64
+            - macOS arm64 (Apple Silicon). On Intel Macs, build from source.
+
             ## Install
 
             One-liner (auto-detects OS/arch, installs to `~/.local/bin`):
@@ -71,4 +87,12 @@ jobs:
             xattr -d com.apple.quarantine ~/.local/bin/bfm
             ```
 
-            Then run `bfm --help`.
+            ## Quickstart
+
+            ```
+            bfm add DOGEUSDT 0.08285     # alert when price reaches 0.08285
+            bfm monitor                  # watch alerts live in this terminal
+            ```
+
+            Add your Telegram token to `~/.config/bfm/config.toml` to get pushed
+            alerts instead of stdout.
