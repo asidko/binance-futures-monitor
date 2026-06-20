@@ -15,8 +15,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04      # older glibc -> runs on more Linux boxes
-          - os: macos-13          # x86_64
-          - os: macos-14          # arm64
+          - os: macos-14          # arm64 (Apple Silicon); Intel macs build from source
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
