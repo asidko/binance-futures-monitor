@@ -25,21 +25,27 @@ def _target() -> str:
     return f"bfm-{osname}-{arch}"
 
 
-def _stamp_build() -> None:
-    """Freeze version + commit into src/_build.py; the binary has no git/pyproject.
-    Reuses version.info() (source-mode here) so the stamp matches what source reports."""
-    sys.path.insert(0, str(ROOT / "src"))
-    import version
-    ver, commit = version.info()
+def _stamp_build(ver: str, commit: str) -> None:
+    """Freeze version + commit into src/_build.py; the binary has no git/pyproject."""
     (ROOT / "src" / "_build.py").write_text(f'VERSION = "{ver}"\nCOMMIT = "{commit}"\n')
     print(f"stamped build: {ver} ({commit})")
 
 
 def main() -> int:
-    _stamp_build()
-    # --include-module: _build is imported only under `if paths.FROZEN`, so make
-    # sure Nuitka bundles it rather than relying on static import detection.
-    cmd = [sys.executable, "-m", "nuitka", "--include-module=_build", str(ENTRY)]
+    sys.path.insert(0, str(ROOT / "src"))
+    import version
+    ver, commit = version.info()  # source-mode here, matches what source reports
+    _stamp_build(ver, commit)
+    cmd = [
+        sys.executable, "-m", "nuitka",
+        # _build is imported only under `if paths.FROZEN`; bundle it explicitly.
+        "--include-module=_build",
+        # --product-version feeds the {VERSION} token in --onefile-tempdir-spec,
+        # so the onefile unpacks to a stable per-version cache dir (extract once,
+        # reuse) instead of a fresh temp dir every launch.
+        f"--product-version={ver}",
+        str(ENTRY),
+    ]
     print("building:", " ".join(cmd))
     subprocess.run(cmd, check=True, cwd=str(ROOT))
 

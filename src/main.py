@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """main.py - watch Binance futures levels via a background daemon.
 
-Usage: ./main.py <command> [options]
+Usage: bfm <command> [options]
 
 Commands:
   add      Add a one-shot watch (auto-removed after it fires once) and ensure the daemon is running.
@@ -14,15 +14,15 @@ Commands:
   logs     Show the daemon log.
 
 examples:
-  ./main.py add DOGEUSDT 0.08285                 (shorthand: symbol then levels)
-  ./main.py add AVGOUSDT 407.96 406.74           (multiple levels, one watch each)
-  ./main.py add BTCUSDT 65000 --provider file --file alerts.log
-  ./main.py add --symbol BTCUSDT --level 65000 --timeframe 1h --condition closed-above --condition closed-below
-  ./main.py monitor                              (watch alerts live, any provider)
-  ./main.py list
-  ./main.py remove --id 3
-  ./main.py remove --all
-  ./main.py status
+  bfm add DOGEUSDT 0.08285                 (shorthand: symbol then levels)
+  bfm add AVGOUSDT 407.96 406.74           (multiple levels, one watch each)
+  bfm add BTCUSDT 65000 --provider file --file alerts.log
+  bfm add --symbol BTCUSDT --level 65000 --timeframe 1h --condition closed-above --condition closed-below
+  bfm monitor                              (watch alerts live, any provider)
+  bfm list
+  bfm remove --id 3
+  bfm remove --all
+  bfm status
 """
 # Build flags for `nuitka` (a portable single-file binary). Applied whenever
 # nuitka compiles this module, so source and CI builds stay identical.
@@ -31,6 +31,7 @@ examples:
 # nuitka-project: --output-filename=bfm
 # nuitka-project: --include-package-data=certifi
 # nuitka-project: --assume-yes-for-downloads
+# nuitka-project: --onefile-tempdir-spec={CACHE_DIR}/bfm/{VERSION}
 import argparse
 import json
 import os
@@ -218,7 +219,7 @@ def cmd_status(args) -> int:
     print(f"last_cycle: {f'{age}s ago' if age is not None else 'never'}")
     print(f"log:        {paths.LOG}")
     if state == "DOWN":
-        print("note: watches exist but daemon is down - run `main.py start`", file=sys.stderr)
+        print("note: watches exist but daemon is down - run `bfm start`", file=sys.stderr)
     return code
 
 

@@ -57,13 +57,7 @@ jobs:
 
             ## Install
 
-            One-liner (auto-detects OS/arch, installs to `~/.local/bin`):
-
-            ```
-            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
-            ```
-
-            Pin this exact version:
+            Installs `bfm` to `~/.local/bin` (auto-detects OS/arch):
 
             ```
             curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh -s -- --tag ${{ github.ref_name }}
