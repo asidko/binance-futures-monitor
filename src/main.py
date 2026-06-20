@@ -13,7 +13,7 @@ Commands:
   stop     Stop the daemon.
   logs     Show the daemon log.
 
-Examples:
+examples:
   ./main.py add DOGEUSDT 0.08285                 (shorthand: symbol then levels)
   ./main.py add AVGOUSDT 407.96 406.74           (multiple levels, one watch each)
   ./main.py add BTCUSDT 65000 --provider file --file alerts.log
@@ -292,7 +292,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog="bfm",
         description=banner or f"bfm - {version.DESCRIPTION}",
-        epilog=__doc__[__doc__.index("Examples:"):].rstrip(),
+        epilog=__doc__[__doc__.index("examples:"):].rstrip(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("-v", "--version", action="version", version=banner or "")
