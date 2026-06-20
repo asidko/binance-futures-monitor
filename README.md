@@ -26,7 +26,7 @@ Or grab a binary straight from the [latest release](https://github.com/asidko/bi
 it in:
 
 ```toml
-default_provider = "telegram"
+default_provider = "telegram"   # telegram | stdout | file | callback
 
 [telegram]
 bot_token = "123456:abc..."
