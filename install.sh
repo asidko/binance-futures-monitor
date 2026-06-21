@@ -3,7 +3,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/asidko/binance-futures-monitor/main/install.sh | sh
 #   curl -fsSL .../install.sh | sh -s -- --tag v1.0.0     # pin a version
 #   curl -fsSL .../install.sh | sh -s -- --remove
-set -e
+set -eu
 
 REPO="asidko/binance-futures-monitor"
 BIN="bfm"
@@ -56,14 +56,32 @@ if [ "$target" = "macos-x86_64" ]; then
     exit 1
 fi
 if [ -n "$TAG" ]; then
-    url="https://github.com/${REPO}/releases/download/${TAG}/${BIN}-${target}"
+    base="https://github.com/${REPO}/releases/download/${TAG}"
 else
-    url="https://github.com/${REPO}/releases/latest/download/${BIN}-${target}"
+    base="https://github.com/${REPO}/releases/latest/download"
 fi
 
+asset="${BIN}-${target}"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+echo "downloading ${asset} (${TAG:-latest})"
+curl -fSL "$base/$asset" -o "$tmp/$asset"
+curl -fSL "$base/SHA256SUMS" -o "$tmp/SHA256SUMS"
+
+# verify the download against the release checksum before trusting the binary
+want=$(awk -v f="$asset" '$2 == f {print $1}' "$tmp/SHA256SUMS")
+[ -n "$want" ] || { echo "no checksum for $asset in SHA256SUMS" >&2; exit 1; }
+if command -v sha256sum >/dev/null 2>&1; then
+    got=$(sha256sum "$tmp/$asset" | awk '{print $1}')
+else
+    got=$(shasum -a 256 "$tmp/$asset" | awk '{print $1}')
+fi
+[ "$want" = "$got" ] || { echo "checksum mismatch for $asset" >&2; exit 1; }
+echo "checksum ok"
+
 mkdir -p "$INSTALL_DIR"
-echo "downloading ${BIN}-${target} (${TAG:-latest})"
-curl -fSL "$url" -o "$INSTALL_DIR/$BIN"
+mv "$tmp/$asset" "$INSTALL_DIR/$BIN"
 chmod 755 "$INSTALL_DIR/$BIN"
 # macOS: strip the Gatekeeper quarantine flag so the binary runs without a prompt
 # (matters for browser-downloaded binaries; a no-op for plain curl downloads)

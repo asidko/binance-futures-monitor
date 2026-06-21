@@ -1,5 +1,9 @@
 # binance-futures-monitor
 
+[![ci](https://github.com/asidko/binance-futures-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/asidko/binance-futures-monitor/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/asidko/binance-futures-monitor)](https://github.com/asidko/binance-futures-monitor/releases/latest)
+[![license: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 ![demo](demo.gif)
 
 Set a price level on any Binance USD-M futures symbol. When price hits it, `bfm`
@@ -79,3 +83,7 @@ uv run python build.py     # -> dist/bfm-<os>-<arch>
 ```
 
 Releases are built per-OS by `.github/workflows/release.yml` on a `v*` tag.
+
+## License
+
+MIT - see [LICENSE](LICENSE).

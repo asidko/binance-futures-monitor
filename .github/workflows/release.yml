@@ -6,7 +6,11 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -20,9 +24,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
       - run: uv sync --dev
       - run: uv run python build.py
+      - name: smoke test the built binary
+        run: |
+          bin=$(ls dist/bfm-*)
+          "$bin" --version
+          "$bin" --help >/dev/null
       - uses: actions/upload-artifact@v4
         with:
           name: bfm-${{ matrix.os }}
@@ -31,13 +40,21 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - uses: softprops/action-gh-release@v2
+      - name: collect binaries and checksums
+        run: |
+          mkdir -p out
+          find artifacts -type f -name 'bfm-*' -exec cp {} out/ \;
+          cd out && sha256sum bfm-* > SHA256SUMS
+          cat SHA256SUMS
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
-          files: artifacts/**/bfm-*
+          files: out/*
           name: ${{ github.ref_name }} - price-level alerts for Binance futures
           body: |
             **bfm** watches Binance USD-M futures and alerts you the moment price
@@ -57,7 +74,7 @@ jobs:
 
             ## Install
 
-            Installs `bfm` to `~/.local/bin` (auto-detects OS/arch):
+            Installs `bfm` to `~/.local/bin` (auto-detects OS/arch, verifies the SHA256 checksum):
 
             ```
             curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh -s -- --tag ${{ github.ref_name }}
@@ -65,9 +82,11 @@ jobs:
 
             ### Manual
 
-            Download the asset for your platform below, then:
+            Download the asset for your platform plus `SHA256SUMS`, verify, then install:
 
             ```
+            sha256sum -c SHA256SUMS --ignore-missing      # macOS: shasum -a 256 -c
+
             # user-local (no sudo) - make sure ~/.local/bin is on your PATH
             chmod +x bfm-* && mkdir -p ~/.local/bin && mv bfm-* ~/.local/bin/bfm
 
