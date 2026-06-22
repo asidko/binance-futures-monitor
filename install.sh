@@ -1,5 +1,6 @@
 #!/bin/sh
 # install.sh - fetch a bfm release binary for this OS/arch (latest by default).
+# Termux (Android, bionic): arm64 has a prebuilt binary; other arches install from source.
 #   curl -fsSL https://raw.githubusercontent.com/asidko/binance-futures-monitor/main/install.sh | sh
 #   curl -fsSL .../install.sh | sh -s -- --tag v1.0.0     # pin a version
 #   curl -fsSL .../install.sh | sh -s -- --remove
@@ -11,15 +12,46 @@ INSTALL_DIR="${BFM_INSTALL_DIR:-$HOME/.local/bin}"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/bfm"
 TAG=""
 OS=$(uname -s)
+TERMUX_LIB="${PREFIX:-}/share/bfm"
+
+is_termux() {
+    case "${PREFIX:-}" in *com.termux*) return 0 ;; esac
+    [ -n "${TERMUX_VERSION:-}" ]
+}
+
+# Termux is Android/bionic - the glibc release binaries can't run there. Install from source
+# instead and drop a shim that runs it with Termux's Python; bfm needs requests, the rest is stdlib.
+install_termux() {
+    command -v python3 >/dev/null 2>&1 || { echo "python3 missing - run: pkg install python" >&2; exit 1; }
+    python3 -c "import requests" >/dev/null 2>&1 || pip install --no-input requests
+    ref="${TAG:-main}"
+    raw="https://raw.githubusercontent.com/${REPO}/${ref}"
+    bindir="${BFM_INSTALL_DIR:-$PREFIX/bin}"
+    mkdir -p "$bindir" "$TERMUX_LIB"
+    echo "Termux: installing bfm from source (${ref})"
+    for f in main.py daemon.py store.py proclock.py paths.py conditions.py binance_client.py config.py notifier.py version.py; do
+        curl -fSL "$raw/src/$f" -o "$TERMUX_LIB/$f"
+    done
+    printf '#!%s/bin/sh\nexec python3 "%s/main.py" "$@"\n' "$PREFIX" "$TERMUX_LIB" > "$bindir/$BIN"
+    chmod 755 "$bindir/$BIN"
+    "$bindir/$BIN" --help >/dev/null 2>&1 || true
+    echo "installed $bindir/$BIN"
+    echo "config at $CONFIG_DIR/config.toml (edit for Telegram alerts)"
+    echo "done. run: $BIN --help"
+    exit 0
+}
 
 detect_target() {
-    os=$OS
     arch=$(uname -m)
-    case "$os" in
-        Linux) os=linux ;;
-        Darwin) os=macos ;;
-        *) echo "unsupported OS: $os" >&2; exit 1 ;;
-    esac
+    if is_termux; then
+        os=android
+    else
+        case "$OS" in
+            Linux) os=linux ;;
+            Darwin) os=macos ;;
+            *) echo "unsupported OS: $OS" >&2; exit 1 ;;
+        esac
+    fi
     case "$arch" in
         x86_64|amd64) arch=x86_64 ;;
         aarch64|arm64) arch=arm64 ;;
@@ -29,7 +61,11 @@ detect_target() {
 }
 
 do_remove() {
-    if [ -f "$INSTALL_DIR/$BIN" ]; then
+    if is_termux; then
+        rm -f "${BFM_INSTALL_DIR:-$PREFIX/bin}/$BIN"
+        rm -rf "$TERMUX_LIB"
+        echo "removed $BIN (Termux)"
+    elif [ -f "$INSTALL_DIR/$BIN" ]; then
         rm -f "$INSTALL_DIR/$BIN"
         echo "removed $INSTALL_DIR/$BIN"
     else
@@ -49,6 +85,15 @@ while [ $# -gt 0 ]; do
 done
 
 command -v curl >/dev/null 2>&1 || { echo "curl is required" >&2; exit 1; }
+
+# Termux arm64 has a prebuilt binary (built in CI under the Termux image); other Termux arches build from source
+if is_termux; then
+    INSTALL_DIR="${BFM_INSTALL_DIR:-$PREFIX/bin}"
+    case "$(uname -m)" in
+        aarch64|arm64) ;;
+        *) install_termux ;;
+    esac
+fi
 
 target=$(detect_target)
 if [ "$target" = "macos-x86_64" ]; then

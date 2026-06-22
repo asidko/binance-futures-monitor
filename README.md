@@ -26,6 +26,8 @@ curl -fsSL https://raw.githubusercontent.com/asidko/binance-futures-monitor/main
 
 Or grab a binary straight from the [latest release](https://github.com/asidko/binance-futures-monitor/releases/latest) and `chmod +x`.
 
+**Android (Termux):** the same `curl ... | sh` line works - arm64 gets a prebuilt binary; other arches install from source (`pkg install python` first).
+
 ## Configure
 
 `bfm` creates `~/.config/bfm/config.toml` on first run. For Telegram alerts, fill
