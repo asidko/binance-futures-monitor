@@ -57,9 +57,7 @@ jobs:
           files: out/*
           name: ${{ github.ref_name }} - price-level alerts for Binance futures
           body: |
-            **bfm** watches Binance USD-M futures and alerts you the moment price
-            hits a level you set. One small binary runs a background daemon over
-            all your watches. Each alert fires once, then the watch removes itself.
+            **bfm** watches Binance USD-M futures and alerts you the moment price hits a level you set. One small binary runs a background daemon over all your watches. Each alert fires once, then the watch removes itself.
 
             ## Highlights
             - Single self-contained binary. No Python, no dependencies to install.
@@ -107,5 +105,4 @@ jobs:
             bfm monitor                  # watch alerts live in this terminal
             ```
 
-            Add your Telegram token to `~/.config/bfm/config.toml` to get pushed
-            alerts instead of stdout.
+            Add your Telegram token to `~/.config/bfm/config.toml` to get pushed alerts instead of stdout.

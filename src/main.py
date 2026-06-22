@@ -108,6 +108,21 @@ def _ensure_daemon(interval: float) -> bool:
     return True
 
 
+def _parse_price(text: str) -> float:
+    """Accept Binance's copied thousands separators (1,379.91 or 1,000,000); on
+    USD-M futures a comma is always a separator, never a decimal point."""
+    return float(text.replace(",", ""))
+
+
+def _default_conditions() -> list[str]:
+    """Condition tokens when --condition is omitted: DEFAULT_CONDITION (config,
+    comma-separated) or both types with the direction auto-picked per level."""
+    raw = os.environ.get("DEFAULT_CONDITION", "").strip()
+    if not raw:
+        return list(conditions.CONDITION_TYPES)
+    return [tok.strip() for tok in raw.split(",") if tok.strip()]
+
+
 def _resolve_target(args) -> tuple[str, list[float]] | None:
     """Merge flagged (--symbol/--level) and shorthand positional forms.
     Positional: the non-numeric token is the symbol, the rest are levels."""
@@ -115,7 +130,7 @@ def _resolve_target(args) -> tuple[str, list[float]] | None:
     levels = list(args.levels or [])
     for tok in args.rest:
         try:
-            levels.append(float(tok))
+            levels.append(_parse_price(tok))
         except ValueError:
             if symbol is not None:
                 print(f"error: multiple symbols given ({symbol}, {tok})", file=sys.stderr)
@@ -136,6 +151,11 @@ def cmd_add(args) -> int:
     if target is None:
         return 2
     symbol, levels = target
+    tokens = args.conditions or _default_conditions()
+    bad = [t for t in tokens if not conditions.is_condition_token(t)]
+    if bad:
+        print(f"error: unknown condition(s) {', '.join(bad)}; valid: {', '.join(conditions.valid_tokens())}", file=sys.stderr)
+        return 2
     if not binance_client.symbol_exists(symbol):
         print(f"error: unknown trading symbol {symbol}", file=sys.stderr)
         return 1
@@ -143,11 +163,12 @@ def cmd_add(args) -> int:
     if _seconds(args.timeframe) and interval > _seconds(args.timeframe):
         print(f"warning: interval {interval}s > timeframe {args.timeframe}; intermediate closed-* candles may be missed",
               file=sys.stderr)
-    price = None if args.conditions else binance_client.get_last_price(symbol)
+    needs_price = any(t in conditions.CONDITION_TYPES for t in tokens)
+    price = binance_client.get_last_price(symbol) if needs_price else None
     conn = store.connect()
     store.init_db(conn)
     for level in levels:
-        cond_names = args.conditions or [c.name for c in conditions.auto_conditions(price, level)]
+        cond_names = conditions.resolve_conditions(tokens, price, level)
         watch_id, created, stored_arg = store.add_watch(conn, symbol, level, args.timeframe, cond_names, provider, provider_arg)
         shown = ",".join(sorted(cond_names))
         print(f"{'added' if created else 'exists'} #{watch_id} {symbol} @ {level} [{shown}] {args.timeframe} ({_provider_label(provider, stored_arg)})")
@@ -302,12 +323,12 @@ def main() -> int:
     p_add.add_argument("rest", nargs="*", metavar="<symbol> <level>...",
                        help="shorthand: `add AVGOUSDT 407.96 406.74` (symbol then levels)")
     p_add.add_argument("--symbol", metavar="<sym>")
-    p_add.add_argument("--level", metavar="<price>", type=float, action="append", dest="levels",
+    p_add.add_argument("--level", metavar="<price>", type=_parse_price, action="append", dest="levels",
                        help="repeatable; each level becomes its own watch")
     p_add.add_argument("--timeframe", metavar="<tf>", default="15m")
-    p_add.add_argument("--condition", metavar="<name>", action="append", dest="conditions",
-                       choices=list(conditions.REGISTRY),
-                       help="repeatable; omit to auto-pick *above/*below by current price vs level")
+    p_add.add_argument("--condition", metavar="<cond>", action="append", dest="conditions",
+                       help="repeatable; a family (closed | crosses | above | below) or a full "
+                            "name (closed-above); a bare type auto-picks its direction. Omit for DEFAULT_CONDITION")
     p_add.add_argument("--provider", metavar="<name>", choices=notifier.PROVIDERS, default=None,
                        help=f"{' | '.join(notifier.PROVIDERS)}; omit for DEFAULT_PROVIDER or telegram, falling back to stdout")
     p_add.add_argument("--file", metavar="<path>", help="output file for the file provider")

@@ -10,7 +10,7 @@ Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/mai
 - `src/main.py` is the ONLY CLI tool (subcommands + daemon spawn). Everything else is a lib, imported only: `daemon.py`, `store.py`, `proclock.py`, `paths.py`, `conditions.py`, `binance_client.py`, `config.py`, `notifier.py`. Libs have no argparse/shebang/`__main__`.
 - The CLI tool holds ZERO reusable logic: parse args, call lib, render. Wire by importing, never subprocess - the ONE exception is the daemon re-spawning itself detached.
 - One file = one responsibility.
-- No magic literals for shared conventions: name a constant in the module that owns it AND place it next to what it describes - not orphaned at the top (e.g. `CONDITION_AUTO_ABOVE_SUFFIX` right above the `REGISTRY` whose keys follow it). Never sprinkle a bare `"-above"`.
+- No magic literals for shared conventions: name a constant in the module that owns it AND place it next to what it describes - not orphaned at the top (e.g. `CONDITION_TYPES`/`CONDITION_DIRECTIONS` right above the `REGISTRY` whose keys are `<type>-<direction>`). Never sprinkle a bare `"-above"`.
 - `paths.py` is the single source of truth for all runtime locations. ONE dir holds everything (`config.toml`, `watches.db`, `daemon.pid`, `daemon.log`): `~/.config/bfm` (XDG, `XDG_CONFIG_HOME`-aware), override with `BFM_CONFIG_DIR`. `DATA_DIR` IS `CONFIG_DIR` - no separate data dir, no source-vs-frozen split for locations. Nuitka sets no `sys.frozen` - detect via `__main__.__compiled__`; `EXECUTABLE` (the real binary, from `original_argv0`) is used only to re-spawn the frozen daemon.
 
 ## CLI conventions (the one CLI tool)
@@ -43,7 +43,7 @@ Read-only scripts to spot situations on Binance USD-M futures. One CLI (`src/mai
 - Named registry; one interface `check(ctx, level, state) -> bool`, dedup state owned inside the condition.
 - First observation sets a baseline and does NOT fire. Each condition is one-shot: when it fires the daemon retires just that condition (so siblings on the same watch stay armed, e.g. `crosses-above` firing leaves `closed-above` active); the watch is deleted once its last condition fires. `bfm list` shows only the still-active conditions.
 - Add a condition = one function + one `REGISTRY` row.
-- Omit `--condition` to auto-pick: below level picks all `*above`, at/above picks all `*below` (suffix-driven `auto_conditions()`). Resolved to concrete names at add-time (CLI fetches the current price), so the store always holds real condition names - there is no "auto" placeholder mode.
+- Conditions are given as compound tokens, expanded by `conditions.resolve_conditions(tokens, price, level)`: a bare type (`closed`/`crosses`) auto-picks its direction (below level -> `*above`, at/above -> `*below`); a bare direction (`above`/`below`) takes both types; a full name (`closed-above`) passes through. Omit `--condition` to use `default_condition` (config, comma-separated) else both types auto. Resolved to concrete names at add-time (CLI fetches the price only when a bare type needs a direction), so the store always holds real condition names - no placeholder mode.
 
 ## Notifier and providers
 - Providers are a dict registry; importable `notify(message, provider, arg=None)`. Each sender is `_send_x(message, arg)`. Add a provider = one `_send_x` function + one `_PROVIDERS` row. Current: `telegram` (env-config), `file` (`arg`=path), `stdout` (no-op; surfaced via `monitor`), `callback` (`arg`=URL, GET with `?message=`).

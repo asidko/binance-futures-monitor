@@ -19,6 +19,11 @@ _DEFAULT = """\
 # default provider when --provider is omitted: "telegram" | "stdout" | "file" | "callback"
 default_provider = ""
 
+# default conditions when --condition is omitted: a family ("closed" | "crosses"
+# auto-picks direction; "above" | "below") or a full name ("closed-above").
+# Comma-separated for several. Empty = both crosses and closed (auto direction).
+default_condition = ""
+
 [telegram]
 bot_token = ""
 chat_id = ""
@@ -42,6 +47,7 @@ def load() -> None:
     _export("TELEGRAM_BOT_TOKEN", telegram.get("bot_token"))
     _export("TELEGRAM_CHAT_ID", telegram.get("chat_id"))
     _export("DEFAULT_PROVIDER", cfg.get("default_provider"))
+    _export("DEFAULT_CONDITION", cfg.get("default_condition"))
 
 
 def _export(key: str, value) -> None:

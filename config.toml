@@ -5,6 +5,11 @@
 # default provider when --provider is omitted: "telegram" | "stdout" | "file" | "callback"
 default_provider = ""
 
+# default conditions when --condition is omitted: a family ("closed" | "crosses"
+# auto-picks direction; "above" | "below") or a full name ("closed-above").
+# Comma-separated for several. Empty = both crosses and closed (auto direction).
+default_condition = ""
+
 [telegram]
 bot_token = ""
 chat_id = ""

@@ -33,6 +33,7 @@ it in:
 
 ```toml
 default_provider = "telegram"   # telegram | stdout | file | callback
+default_condition = "closed"     # default when --condition omitted (empty = crosses + closed)
 
 [telegram]
 bot_token = "123456:abc..."
@@ -54,12 +55,16 @@ bfm logs --follow
 bfm stop
 ```
 
-- Omit conditions and `bfm` picks the direction from the current price: if price
-  is below your level it alerts when price rises to it; if at or above, it alerts
-  when price falls to it. `list` shows the exact conditions it chose.
-- Pick conditions explicitly with flags:
-  `bfm add --symbol BTCUSDT --level 65000 --timeframe 1h --condition closed-above`
-- Conditions: `crosses-above`, `crosses-below`, `closed-above`, `closed-below`.
+- Omit conditions and `bfm` arms both families with the direction picked from the
+  current price: if price is below your level it alerts when price rises to it; if
+  at or above, when price falls to it. `list` shows the exact conditions it chose.
+- `--condition` takes a family or a full name, repeatable:
+  - `closed` / `crosses` - that type, direction auto-picked per level
+  - `above` / `below` - both types, that explicit direction
+  - `closed-above` (etc.) - exactly that one
+  - e.g. `bfm add --symbol BTCUSDT --level 65000 --timeframe 1h --condition closed`
+- Set `default_condition` in config to change what an omitted `--condition` uses.
+- Full condition names: `crosses-above`, `crosses-below`, `closed-above`, `closed-below`.
 - Providers (`--provider`, or set `default_provider` in config): `telegram`,
   `stdout`, `file --file <path>`, `callback --callback-url <url>` (GET with
   `?message=...`). `bfm monitor` shows every alert regardless of provider.
