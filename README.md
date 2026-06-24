@@ -49,6 +49,7 @@ Leave it empty and alerts default to stdout, which you watch live with `bfm moni
 ```
 bfm add DOGEUSDT 0.08285              # symbol then level(s)
 bfm add AVGOUSDT 407.96 406.74        # multiple levels, one watch each
+bfm add --symbol ETHUSDT --level 3500 --condition closed-above   # set param names explicitly + set specific condition
 bfm monitor                           # stream alerts to this terminal
 bfm list
 bfm status
