@@ -47,15 +47,20 @@ Leave it empty and alerts default to stdout, which you watch live with `bfm moni
 ## Use
 
 ```
-bfm add DOGEUSDT 0.08285              # symbol then level(s)
-bfm add AVGOUSDT 407.96 406.74        # multiple levels, one watch each
-bfm add --symbol ETHUSDT --level 3500 --condition closed-above   # set param names explicitly + set specific condition
-bfm monitor                           # stream alerts to this terminal
-bfm list
-bfm status
-bfm remove --symbol DOGEUSDT
-bfm logs --follow
-bfm stop
+bfm add DOGEUSDT 0.08285        # add a watch: symbol then level(s)
+bfm add AVGOUSDT 407.96 406.74  # several levels at once, one watch each
+bfm monitor                     # stream alerts live to this terminal
+bfm list                        # list active watches
+bfm status                      # daemon state + last poll time
+bfm remove --symbol DOGEUSDT    # remove every watch for a symbol
+bfm logs --follow               # tail the daemon log
+bfm stop                        # stop the background daemon
+```
+
+Same `add` with explicit flags instead of the positional shorthand:
+
+```
+bfm add --symbol ETHUSDT --level 3500 --condition closed-above   # spell names out + pin one condition
 ```
 
 `--condition` is repeatable and takes an exact condition or an alias. The six
