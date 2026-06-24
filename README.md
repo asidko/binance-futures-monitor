@@ -57,20 +57,26 @@ bfm logs --follow
 bfm stop
 ```
 
-- Omit conditions and `bfm` arms both families with the direction picked from the
-  current price: if price is below your level it alerts when price rises to it; if
-  at or above, when price falls to it. `list` shows the exact conditions it chose.
-- `--condition` takes a family or a full name, repeatable:
-  - `closed` / `crosses` - that type, direction auto-picked per level
-  - `above` / `below` - both types, that explicit direction
-  - `closed-above` (etc.) - exactly that one
-  - e.g. `bfm add --symbol BTCUSDT --level 65000 --timeframe 1h --condition closed`
-- Set `default_condition` in config to change what an omitted `--condition` uses.
-- Candle-color conditions fire when a candle *closes* that color (level ignored):
-  `closed-green`, `closed-red`. `closed-opposite` arms the color opposite the
-  last closed candle - a reversal alert (red candle now -> waits for a green close).
-- Full condition names: `crosses-above`, `crosses-below`, `closed-above`,
-  `closed-below`, `closed-green`, `closed-red`.
+`--condition` is repeatable and takes an exact condition or an alias. The six
+exact conditions:
+
+- `crosses-above` / `crosses-below` - last price ticks up / down through the level
+- `closed-above` / `closed-below` - a candle closes above / below the level
+- `closed-green` / `closed-red` - a candle closes green / red (level ignored)
+
+Or an alias, which `bfm` resolves to one of the above from the current state when
+you add the watch (`list` shows what it picked):
+
+- `closed` -> `closed-above` or `closed-below`, whichever side price must move to reach the level
+- `crosses` -> `crosses-above` or `crosses-below`, same rule
+- `above` -> both `closed-above` and `crosses-above`
+- `below` -> both `closed-below` and `crosses-below`
+- `closed-opposite` -> `closed-green` or `closed-red`, opposite the last closed candle (a reversal alert)
+
+For example `bfm add --symbol BTCUSDT --level 65000 --timeframe 1h --condition closed`.
+Omit `--condition` and `bfm` uses `default_condition` from config; by default
+that is `crosses` + `closed` (direction auto-picked).
+
 - Providers (`--provider`, or set `default_provider` in config): `telegram`,
   `stdout`, `file --file <path>`, `callback --callback-url <url>` (GET with
   `?message=...`). `bfm monitor` shows every alert regardless of provider.
