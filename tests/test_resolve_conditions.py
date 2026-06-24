@@ -42,7 +42,28 @@ def test_is_condition_token():
     assert conditions.is_condition_token("closed")
     assert conditions.is_condition_token("above")
     assert conditions.is_condition_token("closed-above")
+    assert conditions.is_condition_token("closed-green")
+    assert conditions.is_condition_token("closed-opposite")
     assert not conditions.is_condition_token("bogus")
+
+
+def test_closed_opposite_after_green_candle_arms_red():
+    green = {"open": 10.0, "close": 12.0}
+    assert conditions.resolve_conditions(["closed-opposite"], None, 0.0, candle=green) == ["closed-red"]
+
+
+def test_closed_opposite_after_red_candle_arms_green():
+    red = {"open": 12.0, "close": 10.0}
+    assert conditions.resolve_conditions(["closed-opposite"], None, 0.0, candle=red) == ["closed-green"]
+
+
+def test_closed_opposite_without_candle_errors():
+    with pytest.raises(ValueError):
+        conditions.resolve_conditions(["closed-opposite"], None, 0.0)
+
+
+def test_color_full_name_passes_through():
+    assert conditions.resolve_conditions(["closed-green"], None, 0.0) == ["closed-green"]
 
 
 def test_default_conditions_reads_env(monkeypatch):

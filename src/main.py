@@ -165,10 +165,12 @@ def cmd_add(args) -> int:
               file=sys.stderr)
     needs_price = any(t in conditions.CONDITION_TYPES for t in tokens)
     price = binance_client.get_last_price(symbol) if needs_price else None
+    candle = (binance_client.get_last_closed_kline(symbol, args.timeframe)
+              if conditions.CONDITION_OPPOSITE in tokens else None)
     conn = store.connect()
     store.init_db(conn)
     for level in levels:
-        cond_names = conditions.resolve_conditions(tokens, price, level)
+        cond_names = conditions.resolve_conditions(tokens, price, level, candle)
         watch_id, created, stored_arg = store.add_watch(conn, symbol, level, args.timeframe, cond_names, provider, provider_arg)
         shown = ",".join(sorted(cond_names))
         print(f"{'added' if created else 'exists'} #{watch_id} {symbol} @ {level} [{shown}] {args.timeframe} ({_provider_label(provider, stored_arg)})")
@@ -327,8 +329,9 @@ def main() -> int:
                        help="repeatable; each level becomes its own watch")
     p_add.add_argument("--timeframe", metavar="<tf>", default="15m")
     p_add.add_argument("--condition", metavar="<cond>", action="append", dest="conditions",
-                       help="repeatable; a family (closed | crosses | above | below) or a full "
-                            "name (closed-above); a bare type auto-picks its direction. Omit for DEFAULT_CONDITION")
+                       help="repeatable; a family (closed | crosses | above | below), closed-opposite "
+                            "(next candle's color flips), or a full name (closed-above | closed-green). "
+                            "Omit for DEFAULT_CONDITION")
     p_add.add_argument("--provider", metavar="<name>", choices=notifier.PROVIDERS, default=None,
                        help=f"{' | '.join(notifier.PROVIDERS)}; omit for DEFAULT_PROVIDER or telegram, falling back to stdout")
     p_add.add_argument("--file", metavar="<path>", help="output file for the file provider")

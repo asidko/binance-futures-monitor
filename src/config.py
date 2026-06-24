@@ -20,7 +20,8 @@ _DEFAULT = """\
 default_provider = ""
 
 # default conditions when --condition is omitted: a family ("closed" | "crosses"
-# auto-picks direction; "above" | "below") or a full name ("closed-above").
+# auto-pick direction; "above" | "below"), "closed-opposite" (color flip of the
+# last closed candle), or a full name ("closed-above" | "closed-green").
 # Comma-separated for several. Empty = both crosses and closed (auto direction).
 default_condition = ""
 

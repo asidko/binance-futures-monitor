@@ -66,7 +66,11 @@ bfm stop
   - `closed-above` (etc.) - exactly that one
   - e.g. `bfm add --symbol BTCUSDT --level 65000 --timeframe 1h --condition closed`
 - Set `default_condition` in config to change what an omitted `--condition` uses.
-- Full condition names: `crosses-above`, `crosses-below`, `closed-above`, `closed-below`.
+- Candle-color conditions fire when a candle *closes* that color (level ignored):
+  `closed-green`, `closed-red`. `closed-opposite` arms the color opposite the
+  last closed candle - a reversal alert (red candle now -> waits for a green close).
+- Full condition names: `crosses-above`, `crosses-below`, `closed-above`,
+  `closed-below`, `closed-green`, `closed-red`.
 - Providers (`--provider`, or set `default_provider` in config): `telegram`,
   `stdout`, `file --file <path>`, `callback --callback-url <url>` (GET with
   `?message=...`). `bfm monitor` shows every alert regardless of provider.
