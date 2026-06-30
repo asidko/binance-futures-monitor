@@ -1,8 +1,10 @@
 """config.py - load the global TOML config shared by all scripts.
 
 Library module, not a CLI. Reads ~/.config/bfm/config.toml (see paths), creating
-it from defaults on first use. Values are exported into os.environ so libs keep
-reading os.environ; only non-empty values are set, so a real shell env still wins.
+it from defaults on first use and re-syncing it to the current template on every
+run (filled values kept, missing keys added with defaults, comments refreshed).
+Values are exported into os.environ so libs keep reading os.environ; only
+non-empty values are set, so a real shell env still wins.
 
   import config; config.load()
 """
@@ -40,9 +42,64 @@ chat_id = ""
 
 
 def ensure_config() -> None:
+    paths.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if not paths.CONFIG_FILE.exists():
-        paths.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         paths.CONFIG_FILE.write_text(_DEFAULT)
+    else:
+        _sync()
+
+
+def _sync() -> None:
+    current = paths.CONFIG_FILE.read_text()
+    try:
+        values = tomllib.loads(current)
+    except tomllib.TOMLDecodeError:
+        return
+    merged = _render(values)
+    if merged == current:
+        return
+    try:
+        tomllib.loads(merged)  # never overwrite a valid config with invalid TOML
+    except tomllib.TOMLDecodeError:
+        return
+    tmp = paths.CONFIG_FILE.with_name(f"{paths.CONFIG_FILE.name}.{os.getpid()}.tmp")
+    tmp.write_text(merged)
+    os.chmod(tmp, paths.CONFIG_FILE.stat().st_mode)
+    tmp.replace(paths.CONFIG_FILE)
+
+
+def _render(values: dict) -> str:
+    """Re-emit the template, overlaying each key's value from `values` when set;
+    missing keys keep their template default. Comments/structure follow _DEFAULT."""
+    section = None
+    out = []
+    for line in _DEFAULT.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1]
+        elif stripped and not stripped.startswith("#") and "=" in line:
+            key = line.split("=", 1)[0].strip()
+            container = values.get(section, {}) if section else values
+            if isinstance(container, dict) and key in container:
+                try:
+                    out.append(f"{key} = {_toml_value(container[key])}")
+                    continue
+                except TypeError:
+                    pass
+        out.append(line)
+    return "\n".join(out) + "\n"
+
+
+def _toml_value(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if not isinstance(value, str):
+        raise TypeError(f"non-scalar config value: {type(value).__name__}")
+    escaped = (value.replace("\\", "\\\\").replace('"', '\\"')
+               .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t"))
+    return f'"{escaped}"'
 
 
 def load() -> None:
