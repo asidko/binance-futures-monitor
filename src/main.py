@@ -35,6 +35,7 @@ examples:
 import argparse
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -80,6 +81,8 @@ def _resolve_provider(args) -> tuple[str, str | None] | None:
     if spec.arg_flag is None:
         return provider, None
     raw = getattr(args, spec.arg_dest)
+    if not raw and spec.arg_env:
+        raw = os.environ.get(spec.arg_env)
     if not raw:
         print(f"error: --provider {provider} requires {spec.arg_flag}", file=sys.stderr)
         return None
@@ -123,6 +126,9 @@ def _default_conditions() -> list[str]:
     return [tok.strip() for tok in raw.split(",") if tok.strip()]
 
 
+_SYMBOL_RE = re.compile(r"^[A-Z0-9_]+$")
+
+
 def _resolve_target(args) -> tuple[str, list[float]] | None:
     """Merge flagged (--symbol/--level) and shorthand positional forms.
     Positional: the non-numeric token is the symbol, the rest are levels."""
@@ -139,7 +145,11 @@ def _resolve_target(args) -> tuple[str, list[float]] | None:
     if not symbol or not levels:
         print("error: need a symbol and at least one level (e.g. `add AVGOUSDT 407.96 406.74`)", file=sys.stderr)
         return None
-    return symbol.upper(), levels
+    symbol = symbol.upper()
+    if not _SYMBOL_RE.match(symbol):
+        print(f"error: invalid symbol {symbol}", file=sys.stderr)
+        return None
+    return symbol, levels
 
 
 def cmd_add(args) -> int:
@@ -337,6 +347,8 @@ def main() -> int:
     p_add.add_argument("--file", metavar="<path>", help="output file for the file provider")
     p_add.add_argument("--callback-url", metavar="<url>", dest="callback",
                        help="GET this URL (with ?message=...) for the callback provider")
+    p_add.add_argument("--notify-shell-command", metavar="<cmd>", dest="shell_command",
+                       help="shell command for the shell provider (%%s = message); omit for config notify_shell_command")
     p_add.add_argument("--interval", metavar="<sec>", type=float, default=10.0,
                        help="daemon poll cadence; applied when the daemon (re)starts")
     p_add.set_defaults(func=cmd_add)

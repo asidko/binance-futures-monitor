@@ -34,7 +34,7 @@ Or grab a binary straight from the [latest release](https://github.com/asidko/bi
 it in:
 
 ```toml
-default_provider = "telegram"   # telegram | stdout | file | callback
+default_provider = "telegram"   # telegram | stdout | file | callback | shell
 default_condition = "closed"     # default when --condition omitted (empty = crosses + closed)
 
 [telegram]
@@ -85,7 +85,10 @@ that is `crosses` + `closed` (direction auto-picked).
 
 - Providers (`--provider`, or set `default_provider` in config): `telegram`,
   `stdout`, `file --file <path>`, `callback --callback-url <url>` (GET with
-  `?message=...`). `bfm monitor` shows every alert regardless of provider.
+  `?message=...`), `shell --notify-shell-command <cmd>` (runs the command via
+  `/bin/sh`, `%s` = the message; omit the flag to use `notify_shell_command` from
+  config - see the config comment for desktop-popup examples). `bfm monitor`
+  shows every alert regardless of provider.
 - `--interval` sets the daemon poll cadence; applied when the daemon (re)starts.
 
 ## Develop / build from source

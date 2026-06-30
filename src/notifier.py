@@ -1,14 +1,17 @@
 """notifier.py - send an alert message through a pluggable provider.
 
 Library module, not a CLI. Providers are a dict registry; add one = a _send_x
-function plus a _PROVIDERS row. The file provider takes a path via `arg`;
-stdout is a no-op here (alerts reach the terminal via `bfm monitor`).
+function plus a REGISTRY row. The file provider takes a path via `arg`;
+stdout is a no-op here (alerts reach the terminal via `bfm monitor`); the shell
+provider runs `arg` with `%s` replaced by the message.
 
   from notifier import notify
   notify("[DOGE] level broke", "telegram")
   notify("[DOGE] level broke", "file", "/tmp/alerts.log")
+  notify("[DOGE] level broke", "shell", 'terminal-notifier -message "%s"')
 """
 import os
+import subprocess
 from dataclasses import dataclass
 from typing import Callable
 
@@ -52,6 +55,13 @@ def _send_callback(message: str, arg: str | None) -> None:
     resp.raise_for_status()
 
 
+def _send_shell(message: str, arg: str | None) -> None:
+    if not arg:
+        raise RuntimeError("shell provider needs a command (use %s for the message)")
+    cmd = arg.replace("%%", "\0").replace("%s", message).replace("\0", "%")
+    subprocess.run(cmd, shell=True, check=True, timeout=10)
+
+
 def _validate_file(path: str) -> str:
     full = os.path.abspath(path)
     try:
@@ -68,12 +78,19 @@ def _validate_url(url: str) -> str:
     return url
 
 
+def _validate_shell(cmd: str) -> str:
+    if not cmd.strip():
+        raise ValueError("shell command must not be empty")
+    return cmd
+
+
 @dataclass
 class Provider:
     send: Callable[[str, str | None], None]
     arg_flag: str | None = None  # CLI flag a watch must supply; None = no arg
     arg_dest: str | None = None  # argparse dest holding that flag's value
     validate: Callable[[str], str] | None = None  # normalize the arg or raise ValueError
+    arg_env: str | None = None  # config-supplied default for the arg when the flag is omitted
 
 
 REGISTRY = {
@@ -81,6 +98,7 @@ REGISTRY = {
     "file": Provider(_send_file, "--file <path>", "file", _validate_file),
     "stdout": Provider(_send_stdout),
     "callback": Provider(_send_callback, "--callback-url <url>", "callback", _validate_url),
+    "shell": Provider(_send_shell, "--notify-shell-command <cmd>", "shell_command", _validate_shell, "NOTIFY_SHELL_COMMAND"),
 }
 
 PROVIDERS = tuple(REGISTRY)
