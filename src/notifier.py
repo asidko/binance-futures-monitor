@@ -34,7 +34,10 @@ def _send_telegram(message: str, arg: str | None) -> None:
         data={"chat_id": chat_id, "text": message},
         timeout=10,
     )
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        # never raise_for_status here: HTTPError embeds the URL, and the URL
+        # embeds the bot token, which would end up in the daemon log
+        raise RuntimeError(f"telegram send failed: HTTP {resp.status_code} {resp.text[:200]}")
 
 
 def _send_file(message: str, arg: str | None) -> None:

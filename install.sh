@@ -62,16 +62,28 @@ detect_target() {
 
 do_remove() {
     if is_termux; then
-        rm -f "${BFM_INSTALL_DIR:-$PREFIX/bin}/$BIN"
+        bin_path="${BFM_INSTALL_DIR:-$PREFIX/bin}/$BIN"
+    else
+        bin_path="$INSTALL_DIR/$BIN"
+    fi
+    # stop the daemon BEFORE deleting the binary - it never exits on its own
+    # while watches are active, and `bfm stop` is gone once the file is
+    [ -x "$bin_path" ] && "$bin_path" stop >/dev/null 2>&1 || true
+    if is_termux; then
+        rm -f "$bin_path"
         rm -rf "$TERMUX_LIB"
         echo "removed $BIN (Termux)"
-    elif [ -f "$INSTALL_DIR/$BIN" ]; then
-        rm -f "$INSTALL_DIR/$BIN"
-        echo "removed $INSTALL_DIR/$BIN"
+    elif [ -f "$bin_path" ]; then
+        rm -f "$bin_path"
+        echo "removed $bin_path"
     else
         echo "$BIN not installed in $INSTALL_DIR"
     fi
-    echo "note: config and data left in $CONFIG_DIR (delete manually if unwanted)"
+    case "$OS" in
+        Darwin) cache="$HOME/Library/Caches/$BIN" ;;
+        *) cache="${XDG_CACHE_HOME:-$HOME/.cache}/$BIN" ;;
+    esac
+    echo "note: config and data left in $CONFIG_DIR, unpack cache in $cache (delete manually if unwanted)"
     exit 0
 }
 
@@ -111,7 +123,15 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 echo "downloading ${asset} (${TAG:-latest})"
-curl -fSL "$base/$asset" -o "$tmp/$asset"
+if ! curl -fSL "$base/$asset" -o "$tmp/$asset"; then
+    if is_termux; then
+        # a release may ship without the android asset (its build is best-effort)
+        echo "no prebuilt $asset in this release - falling back to source install"
+        install_termux
+    fi
+    echo "download failed: $base/$asset" >&2
+    exit 1
+fi
 curl -fSL "$base/SHA256SUMS" -o "$tmp/SHA256SUMS"
 
 # verify the download against the release checksum before trusting the binary
@@ -126,13 +146,18 @@ fi
 echo "checksum ok"
 
 mkdir -p "$INSTALL_DIR"
-mv "$tmp/$asset" "$INSTALL_DIR/$BIN"
-chmod 755 "$INSTALL_DIR/$BIN"
+# stage INSIDE the install dir: chmod + de-quarantine the staged copy, then a
+# same-filesystem mv (atomic rename) - the live binary is never truncated
+# mid-write and a running daemon keeps its old inode
+staged="$INSTALL_DIR/.$BIN.new"
+mv "$tmp/$asset" "$staged"
+chmod 755 "$staged"
 # macOS: strip the Gatekeeper quarantine flag so the binary runs without a prompt
 # (matters for browser-downloaded binaries; a no-op for plain curl downloads)
 if [ "$OS" = "Darwin" ]; then
-    xattr -d com.apple.quarantine "$INSTALL_DIR/$BIN" 2>/dev/null || true
+    xattr -d com.apple.quarantine "$staged" 2>/dev/null || true
 fi
+mv -f "$staged" "$INSTALL_DIR/$BIN"
 echo "installed $INSTALL_DIR/$BIN"
 
 case ":$PATH:" in
@@ -141,6 +166,8 @@ case ":$PATH:" in
 esac
 
 echo "running first-time setup (unpacks the binary, may take a moment)..."
-"$INSTALL_DIR/$BIN" --help >/dev/null 2>&1 || true
+if ! "$INSTALL_DIR/$BIN" --version; then
+    echo "warning: $BIN did not run on this system - check OS/arch compatibility" >&2
+fi
 echo "config created at $CONFIG_DIR/config.toml (edit for Telegram alerts)"
 echo "done. run: $BIN --help"

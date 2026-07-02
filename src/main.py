@@ -41,6 +41,8 @@ import subprocess
 import sys
 import time
 
+import requests
+
 import binance_client
 import conditions
 import config
@@ -166,26 +168,38 @@ def cmd_add(args) -> int:
     if bad:
         print(f"error: unknown condition(s) {', '.join(bad)}; valid: {', '.join(conditions.valid_tokens())}", file=sys.stderr)
         return 2
-    if not binance_client.symbol_exists(symbol):
-        print(f"error: unknown trading symbol {symbol}", file=sys.stderr)
-        return 1
+    if args.timeframe not in binance_client.VALID_TIMEFRAMES:
+        print(f"error: invalid timeframe {args.timeframe}; valid: {', '.join(binance_client.VALID_TIMEFRAMES)}", file=sys.stderr)
+        return 2
     interval = max(args.interval, _MIN_INTERVAL)
     if _seconds(args.timeframe) and interval > _seconds(args.timeframe):
         print(f"warning: interval {interval}s > timeframe {args.timeframe}; intermediate closed-* candles may be missed",
               file=sys.stderr)
     needs_price = any(t in conditions.CONDITION_TYPES for t in tokens)
-    price = binance_client.get_last_price(symbol) if needs_price else None
-    candle = (binance_client.get_last_closed_kline(symbol, args.timeframe)
-              if conditions.CONDITION_OPPOSITE in tokens else None)
+    try:
+        if not binance_client.symbol_exists(symbol):
+            print(f"error: unknown trading symbol {symbol}", file=sys.stderr)
+            return 1
+        price = binance_client.get_last_price(symbol) if needs_price else None
+        candle = (binance_client.get_last_closed_kline(symbol, args.timeframe)
+                  if conditions.CONDITION_OPPOSITE in tokens else None)
+    except (binance_client.RateLimited, requests.RequestException) as exc:
+        print(f"error: Binance request failed: {exc}", file=sys.stderr)
+        return 1
+    if conditions.CONDITION_OPPOSITE in tokens:
+        if candle is None:
+            print(f"error: {symbol} has no closed {args.timeframe} candle yet", file=sys.stderr)
+            return 1
+        if candle["close"] == candle["open"]:
+            print("error: last candle is a doji (no color); use closed-green/closed-red explicitly", file=sys.stderr)
+            return 1
     conn = store.connect()
     store.init_db(conn)
     for level in levels:
         cond_names = conditions.resolve_conditions(tokens, price, level, candle)
-        watch_id, created, stored_arg = store.add_watch(conn, symbol, level, args.timeframe, cond_names, provider, provider_arg)
+        watch_id, created = store.add_watch(conn, symbol, level, args.timeframe, cond_names, provider, provider_arg)
         shown = ",".join(sorted(cond_names))
-        print(f"{'added' if created else 'exists'} #{watch_id} {symbol} @ {level} [{shown}] {args.timeframe} ({_provider_label(provider, stored_arg)})")
-        if not created and stored_arg != provider_arg:
-            print(f"note: #{watch_id} already targets {_provider_label(provider, stored_arg)}; remove it first to retarget", file=sys.stderr)
+        print(f"{'added' if created else 'exists'} #{watch_id} {symbol} @ {level} [{shown}] {args.timeframe} ({_provider_label(provider, provider_arg)})")
     if provider == "stdout":
         print("alerts go to stdout - watch them live with `bfm monitor`")
     spawned = _ensure_daemon(interval)
@@ -234,7 +248,10 @@ def cmd_status(args) -> int:
     count = store.count_watches(conn)
     last = meta.get("last_cycle")
     age = int(time.time()) - last if last else None
-    threshold = _WEDGED_CYCLES * max(args.interval, _MIN_INTERVAL)
+    # judge staleness by the daemon's own cadence (persisted at start), not
+    # this command's --interval default
+    interval = meta.get("interval") or max(args.interval, _MIN_INTERVAL)
+    threshold = _WEDGED_CYCLES * interval
 
     if count == 0 and pid is None:
         state, code = "IDLE (no watches)", 0
@@ -284,13 +301,19 @@ def cmd_stop(args) -> int:
     if pid is None:
         print("not running")
         return 0
-    os.kill(pid, signal.SIGTERM)
-    for _ in range(40):
-        if proclock.running_pid(paths.PIDFILE) is None:
-            print(f"stopped (pid {pid})")
-            return 0
-        time.sleep(0.25)
-    os.kill(pid, signal.SIGKILL)
+    try:
+        os.kill(pid, signal.SIGTERM)
+        # grace must outlast one in-flight HTTP/notify timeout (10s), or a
+        # slow cycle gets SIGKILLed mid-delivery
+        for _ in range(60):
+            if proclock.running_pid(paths.PIDFILE) is None:
+                print(f"stopped (pid {pid})")
+                return 0
+            time.sleep(0.25)
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        print(f"stopped (pid {pid})")
+        return 0
     print(f"force-killed (pid {pid})")
     return 0
 

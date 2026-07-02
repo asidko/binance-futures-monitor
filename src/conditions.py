@@ -30,10 +30,10 @@ def _crosses_above(ctx: dict, level: float, state: dict) -> bool:
 
 
 def _crosses_below(ctx: dict, level: float, state: dict) -> bool:
-    above = ctx["price"] > level
-    prev = state.get("above")
-    state["above"] = above
-    return prev is not None and prev and not above
+    below = ctx["price"] < level
+    prev = state.get("below")
+    state["below"] = below
+    return prev is not None and not prev and below
 
 
 def _closed_above(ctx: dict, level: float, state: dict) -> bool:
@@ -55,7 +55,7 @@ def _closed_red(ctx: dict, level: float, state: dict) -> bool:
 def _on_new_close(ctx: dict, state: dict, predicate: Callable[[dict], bool]) -> bool:
     kline = ctx["closed_kline"]
     prev_open_time = state.get("open_time")
-    if kline["open_time"] == prev_open_time:
+    if prev_open_time is not None and kline["open_time"] <= prev_open_time:
         return False
     first = prev_open_time is None
     state["open_time"] = kline["open_time"]

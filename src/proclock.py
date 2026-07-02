@@ -38,6 +38,9 @@ class DaemonLock:
         return True
 
     def release(self) -> None:
+        """Unlock and close, but never unlink: removing the path lets a probe
+        lock the old inode while a new daemon locks a fresh file - two daemons.
+        The pidfile is permanent; a dead holder just leaves it unlocked."""
         if self._fd is None:
             return
         try:
@@ -45,7 +48,6 @@ class DaemonLock:
         finally:
             os.close(self._fd)
             self._fd = None
-            self._pidfile.unlink(missing_ok=True)
 
 
 def running_pid(pidfile: Path) -> int | None:

@@ -13,7 +13,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    # the onefile unpack cache is keyed on the pyproject version; releasing a
+    # tag that doesn't match it would serve users a stale cached payload
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: tag must match pyproject version
+        run: |
+          ver=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
+          [ "${GITHUB_REF_NAME}" = "v${ver}" ] || { echo "tag ${GITHUB_REF_NAME} != pyproject v${ver}" >&2; exit 1; }
+
   build:
+    needs: guard
     strategy:
       fail-fast: false
       matrix:
@@ -40,7 +52,9 @@ jobs:
   build-android:
     # Android is bionic, not glibc, and GitHub has no Android runner - build inside the Termux
     # image. Runs on a NATIVE arm64 runner so the aarch64 container needs no QEMU (emulation was
-    # ~5-20x slower). Best-effort: a flake here must NOT block the linux/macOS release.
+    # ~5-20x slower). Best-effort: a flake here must NOT block the linux/macOS release
+    # (install.sh falls back to a source install when the asset is missing).
+    needs: guard
     runs-on: ubuntu-22.04-arm
     continue-on-error: true
     steps:
@@ -48,11 +62,12 @@ jobs:
       - name: build in Termux (aarch64, native)
         run: |
           chmod -R a+w .
-          docker run --rm --privileged -v "$PWD":/build -w /build \
+          nuitka_pin=$(grep -A2 'name = "nuitka"' uv.lock | grep -m1 version | cut -d'"' -f2)
+          docker run --rm --privileged -v "$PWD":/build -w /build -e NUITKA_PIN="$nuitka_pin" \
             termux/termux-docker:aarch64 bash -c '
               set -e
-              apt update -yq && apt install -yq python clang binutils patchelf ldd ccache termux-elf-cleaner
-              pip install --no-input nuitka zstandard requests
+              apt update -yq && apt install -yq python git clang binutils patchelf ldd ccache termux-elf-cleaner
+              pip install --no-input "nuitka==$NUITKA_PIN" zstandard requests
               python build.py
             '
       - name: smoke test the built binary
@@ -83,13 +98,14 @@ jobs:
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
           files: out/*
+          draft: true  # publish only after every asset is attached, so `latest` never 404s
           name: ${{ github.ref_name }} - price-level alerts for Binance futures
           body: |
             **bfm** watches Binance USD-M futures and alerts you the moment price hits a level you set. One small binary runs a background daemon over all your watches. Each alert fires once, then the watch removes itself.
 
             ## Highlights
             - Single self-contained binary. No Python, no dependencies to install.
-            - Alert channels: Telegram, a file, stdout, or a webhook (callback URL).
+            - Alert channels: Telegram, a file, stdout, a webhook (callback URL), or any shell command (desktop popups via osascript/notify-send).
             - `bfm monitor` streams alerts live to your terminal, whatever channel a watch uses.
             - Auto-picks the alert direction from the current price; add several levels in one command.
             - Config and data sit in one place: `~/.config/bfm/config.toml`.
@@ -135,3 +151,7 @@ jobs:
             ```
 
             Add your Telegram token to `~/.config/bfm/config.toml` to get pushed alerts instead of stdout.
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false

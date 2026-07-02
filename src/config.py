@@ -24,9 +24,10 @@ default_provider = ""
 # command the shell provider runs (%s = the alert message, %% = a literal %);
 # used when --notify-shell-command is omitted. Runs via /bin/sh, so $HOME etc.
 # expand. Quote %s - the message has spaces and parentheses.
-#   default     notify_shell_command = 'echo "%s" >> $HOME/bfm_notifications.txt'
-#   macOS popup notify_shell_command = 'terminal-notifier -title "bfm" -message "%s"'
-#   Linux popup notify_shell_command = 'notify-send "bfm" "%s"'
+#   default      notify_shell_command = 'echo "%s" >> $HOME/bfm_notifications.txt'
+#   macOS native notify_shell_command = "osascript -e 'display notification \"%s\" with title \"bfm\"'"  # zero install
+#   macOS popup  notify_shell_command = 'terminal-notifier -title "bfm" -message "%s"'  # needs: brew install terminal-notifier
+#   Linux popup  notify_shell_command = 'notify-send "bfm" "%s"'
 notify_shell_command = ""
 
 # default conditions when --condition is omitted: a family ("closed" | "crosses"
@@ -44,7 +45,7 @@ chat_id = ""
 def ensure_config() -> None:
     paths.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if not paths.CONFIG_FILE.exists():
-        paths.CONFIG_FILE.write_text(_DEFAULT)
+        _write_atomic(_DEFAULT, 0o600)  # will hold telegram tokens; owner-only
     else:
         _sync()
 
@@ -62,9 +63,19 @@ def _sync() -> None:
         tomllib.loads(merged)  # never overwrite a valid config with invalid TOML
     except tomllib.TOMLDecodeError:
         return
+    _write_atomic(merged, paths.CONFIG_FILE.stat().st_mode & 0o777)
+
+
+def _write_atomic(content: str, mode: int) -> None:
+    """tmp is pid-unique (CLI and daemon both sync at startup) and created with
+    the final mode up front, so a token never sits in a group-readable file."""
     tmp = paths.CONFIG_FILE.with_name(f"{paths.CONFIG_FILE.name}.{os.getpid()}.tmp")
-    tmp.write_text(merged)
-    os.chmod(tmp, paths.CONFIG_FILE.stat().st_mode)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    try:
+        os.write(fd, content.encode())
+    finally:
+        os.close(fd)
+    os.chmod(tmp, mode)  # O_CREAT mode is masked by umask; assert it exactly
     tmp.replace(paths.CONFIG_FILE)
 
 
